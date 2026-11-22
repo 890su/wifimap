@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderRssi } from '../lib/heatmapRender'
-import { computeRssiGrid, coverageFraction, effectiveScale } from '../model/pathloss'
+import { computeRssiGrid, coverageFraction, coverageZones, effectiveScale } from '../model/pathloss'
 import type { HeatmapGrid, HeatmapRequest, Project } from '../model/types'
 import { useEditor } from '../store/editor'
 
@@ -71,6 +71,7 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
     if (currentProject.aps.length === 0) {
       setCanvas(null)
       setHeatmap({ status: 'idle', coverage67: null, renderer: null })
+      useEditor.getState().setZones(null)
       return
     }
     const previous = useEditor.getState()
@@ -108,6 +109,7 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
         })
         setEpoch((value) => value + 1)
         setHeatmap({ status: 'ready', coverage67: coverageFraction(grid.rssi, -67), renderer: rendered.renderer })
+        useEditor.getState().setZones(coverageZones(grid.rssi))
       }
       const runLocal = () => {
         try {

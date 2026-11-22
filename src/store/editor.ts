@@ -61,10 +61,12 @@ interface EditorState {
   mode: 'simple' | 'advanced'
   lang: 'ru' | 'en'
   heatmapOpacity: number
+  snapEnabled: boolean
   touched: boolean
   hydrated: boolean
   heatmapStatus: HeatStatus
   coverage67: number | null
+  zones: { excellent: number; good: number; fair: number; weak: number; dead: number } | null
   renderer: 'webgl2' | 'canvas2d' | null
   toast: string | null
   setTool: (tool: Tool) => void
@@ -75,8 +77,10 @@ interface EditorState {
   setApPreset: (preset: ApPreset) => void
   setClientPreset: (preset: ClientPreset) => void
   setOpacity: (value: number) => void
+  setSnapEnabled: (value: boolean) => void
   setToast: (toast: string | null) => void
   setHeatmap: (patch: { status: HeatStatus; coverage67: number | null; renderer: 'webgl2' | 'canvas2d' | null }) => void
+  setZones: (zones: EditorState['zones']) => void
   select: (selection: Selection) => void
   markHydrated: () => void
   pushHistory: () => void
@@ -117,10 +121,12 @@ export const useEditor = create<EditorState>((set, get) => ({
   mode: readEnum('wifiplan:mode', ['simple', 'advanced'] as const, 'simple'),
   lang: readEnum('wifiplan:lang', ['ru', 'en'] as const, 'ru'),
   heatmapOpacity: 0.62,
+  snapEnabled: true,
   touched: false,
   hydrated: false,
   heatmapStatus: 'idle',
   coverage67: null,
+  zones: null,
   renderer: null,
   toast: null,
   setTool: (tool) => set({ tool }),
@@ -140,13 +146,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   setApPreset: (apPreset) => set({ apPreset }),
   setClientPreset: (clientPreset) => set({ clientPreset }),
   setOpacity: (heatmapOpacity) => set({ heatmapOpacity }),
+  setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
   setToast: (toast) => set({ toast }),
   setHeatmap: (next) => set({ heatmapStatus: next.status, coverage67: next.coverage67, renderer: next.renderer }),
+  setZones: (zones) => set({ zones }),
   select: (selection) => set({ selection }),
   markHydrated: () => set({ hydrated: true }),
   pushHistory: () => {
     const { project, past } = get()
-    set({ past: [...past, cloneSnapshot(project)].slice(-60), future: [] })
+    set({ past: [...past, cloneSnapshot(project)].slice(-100), future: [] })
   },
   undo: () => {
     const { past, future, project } = get()

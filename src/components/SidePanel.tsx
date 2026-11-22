@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useMedia } from '../hooks/useMedia'
 import { fmtMbps, fmtMs, fmtNum } from '../lib/format'
 import { qualityKey, type MessageKey } from '../i18n'
-import { MATERIALS } from '../model/materials'
+import { MATERIALS, SIMPLE_MATERIAL_IDS } from '../model/materials'
 import { AP_PRESET_IDS, AP_PRESETS, CLIENT_PRESET_IDS, CLIENT_PRESETS } from '../model/presets'
 import { ACTIVITY_IDS, effectiveScale, estimateClients } from '../model'
 import type { AccessPoint, Backhaul, WifiGen } from '../model/types'
@@ -28,6 +28,8 @@ export function SidePanel() {
   const setMaterial = useEditor((state) => state.setMaterial)
   const status = useEditor((state) => state.heatmapStatus)
   const coverage = useEditor((state) => state.coverage67)
+  const zones = useEditor((state) => state.zones)
+  const snapEnabled = useEditor((state) => state.snapEnabled)
   const renderer = useEditor((state) => state.renderer)
   const opacity = useEditor((state) => state.heatmapOpacity)
   const setOpacity = useEditor((state) => state.setOpacity)
@@ -98,6 +100,17 @@ export function SidePanel() {
               />
             </label>
           </div>
+          <label>
+            {t('isp.ping')}
+            <input
+              className="field"
+              type="number"
+              min={0}
+              value={project.isp.pingMs ?? 8}
+              onFocus={() => pushHistory()}
+              onChange={(event) => setIsp({ pingMs: Math.max(0, Number(event.target.value) || 0) }, false)}
+            />
+          </label>
           <p className="field-note">{t('isp.note')}</p>
         </section>
 
@@ -111,6 +124,11 @@ export function SidePanel() {
           <p className="coverage">
             {t('heat.coverage')}: <strong>{coverage === null ? '—' : `${Math.round(coverage * 100)}%`}</strong>
           </p>
+          {zones && (
+            <p className="zones">
+              {t('zone.excellent')} {Math.round(zones.excellent * 100)}% · {t('zone.good')} {Math.round(zones.good * 100)}% · {t('zone.fair')} {Math.round(zones.fair * 100)}% · {t('zone.weak')} {Math.round(zones.weak * 100)}% · {t('zone.dead')} {Math.round(zones.dead * 100)}%
+            </p>
+          )}
           <label className="slider">
             {t('heat.opacity')}
             <input type="range" min={0.2} max={0.85} step={0.01} value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} />
@@ -132,13 +150,17 @@ export function SidePanel() {
                   onChange={(event) => setPropagation({ exponent: Number(event.target.value) }, false)}
                 />
               </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={project.propagation.autoClutter}
-                  onChange={(event) => setPropagation({ autoClutter: event.target.checked }, true)}
-                />
-                {t('heat.auto')}
+              <label>
+                {t('heat.neighbors')}
+                <select
+                  className="field"
+                  value={project.propagation.noiseExtraDb ?? 3}
+                  onChange={(event) => setPropagation({ noiseExtraDb: Number(event.target.value) }, true)}
+                >
+                  <option value={0}>{t('neighbor.house')}</option>
+                  <option value={3}>{t('neighbor.flat')}</option>
+                  <option value={6}>{t('neighbor.block')}</option>
+                </select>
               </label>
               {renderer && <p className="field-note">{renderer === 'webgl2' ? t('heat.renderer.webgl2') : t('heat.renderer.canvas2d')}</p>}
             </>
@@ -204,7 +226,7 @@ export function SidePanel() {
                     <div key={id} className="score">
                       <span>{t(`act.${id}`)}</span>
                       <span className="score-track"><span style={{ width: `${score}%` }} /></span>
-                      <em>{t(qualityKey(score))}</em>
+                      <em>{'★'.repeat(Math.max(1, Math.round(score / 25)))}{'☆'.repeat(Math.max(0, 5 - Math.max(1, Math.round(score / 25))))} {t(qualityKey(score))}</em>
                     </div>
                   )
                 })}
@@ -218,17 +240,14 @@ export function SidePanel() {
 
         <section>
           <h2>{t('insp.title')}</h2>
+          <label className="check">
+            <input type="checkbox" checked={snapEnabled} onChange={(event) => useEditor.getState().setSnapEnabled(event.target.checked)} />
+            {t('snap.label')}
+          </label>
           <label>
-            {wall ? t('insp.materialOf') : t('insp.material')}
-            <select
-              className="field"
-              value={wall?.materialId ?? materialId}
-              onChange={(event) => {
-                if (wall) updateWall(wall.id, { materialId: event.target.value })
-                else setMaterial(event.target.value)
-              }}
-            >
-              {MATERIALS.map((material) => (
+            {t('insp.material')}
+            <select className="field" value={materialId} onChange={(event) => setMaterial(event.target.value)}>
+              {(mode === 'advanced' ? MATERIALS : MATERIALS.filter((material) => SIMPLE_MATERIAL_IDS.includes(material.id))).map((material) => (
                 <option key={material.id} value={material.id}>
                   {t(matKey(material.id))}
                   {mode === 'advanced' ? ` · ${material.lossDb['2.4']}/${material.lossDb['5']} ${t('unit.db')}` : ''}
@@ -236,6 +255,31 @@ export function SidePanel() {
               ))}
             </select>
           </label>
+          {wall && (
+            <>
+              <label>
+                {t('insp.materialOf')}
+                <select className="field" value={wall.materialId} onChange={(event) => updateWall(wall.id, { materialId: event.target.value })}>
+                  {MATERIALS.map((material) => (
+                    <option key={material.id} value={material.id}>{t(matKey(material.id))}</option>
+                  ))}
+                </select>
+              </label>
+              {mode === 'advanced' && (
+                <label>
+                  {t('insp.thickness')}
+                  <input
+                    className="field"
+                    type="number"
+                    min={1}
+                    value={wall.thicknessCm ?? 12}
+                    onFocus={() => pushHistory()}
+                    onChange={(event) => updateWall(wall.id, { thicknessCm: Math.max(1, Number(event.target.value) || 12) }, false)}
+                  />
+                </label>
+              )}
+            </>
+          )}
           {!wall && !ap && !client && <p className="field-note">{t('insp.none')}</p>}
           {ap && <ApFields ap={ap} advanced={mode === 'advanced'} />}
           {client && (
@@ -336,6 +380,9 @@ function ApFields({ ap, advanced }: { ap: AccessPoint; advanced: boolean }) {
           ))}
         </select>
       </label>
+      {(ap.band24.txPowerDbm + ap.band24.gainDbi > 20 || ap.band5.txPowerDbm + ap.band5.gainDbi > 23) && (
+        <p className="field-note warn">{t('warn.eirp')}</p>
+      )}
       <label>
         {t('insp.backhaul')}
         <select className="field" value={ap.backhaul} onChange={(event) => updateAp(ap.id, { backhaul: event.target.value as Backhaul })}>

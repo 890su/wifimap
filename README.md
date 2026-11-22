@@ -50,7 +50,7 @@ npx wrangler pages deploy dist --project-name wifiplan
 
 `wrangler.toml` задаёт `pages_build_output_dir = "dist"`. Первый деплой создаст проект Pages с именем `wifiplan`, если его ещё нет (нужен вход: `npx wrangler login`).
 
-В `dist` попадают `public/_headers` и `public/_redirects`. Заголовок `Content-Security-Policy: frame-ancestors *` разрешает вставку в iframe; `X-Frame-Options` не задаётся. `/* /index.html 200` отдаёт приложение для неизвестных путей. Файлы и Pages Functions имеют приоритет над этим правилом.
+В `dist` попадают `public/_headers`, `public/_redirects` и `public/embed.js`. Заголовок `Content-Security-Policy: frame-ancestors *` разрешает вставку в iframe; `X-Frame-Options` не задаётся. Список родителей можно сузить переменной `FRAME_ANCESTORS` в `wrangler.toml` (её применяет `functions/_middleware.ts`). `/* /index.html 200` отдаёт приложение для неизвестных путей. Файлы и Pages Functions имеют приоритет над этим правилом. `embed.js` меняет высоту iframe по сообщению `{ type: "wifiplan:height", height }`.
 
 ### Короткие ссылки
 

@@ -4,6 +4,31 @@ export function dist(a: Point, b: Point): number {
   return Math.hypot(a.x - b.x, a.y - b.y)
 }
 
+/** Parameter t along the first segment, or null when the segments do not properly cross. */
+export function crossingT(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+  dx: number,
+  dy: number,
+): number | null {
+  const d1x = bx - ax
+  const d1y = by - ay
+  const d2x = dx - cx
+  const d2y = dy - cy
+  const den = d1x * d2y - d1y * d2x
+  if (den === 0) return null
+  const acx = cx - ax
+  const acy = cy - ay
+  const t = (acx * d2y - acy * d2x) / den
+  const u = (acx * d1y - acy * d1x) / den
+  if (t > 0.02 && t < 0.998 && u > 0.001 && u < 0.999) return t
+  return null
+}
+
 /** Proper segment crossing. Endpoints do not count, so shared corners are not double-hit. */
 export function segmentsCross(
   ax: number,
@@ -15,17 +40,7 @@ export function segmentsCross(
   dx: number,
   dy: number,
 ): boolean {
-  const d1x = bx - ax
-  const d1y = by - ay
-  const d2x = dx - cx
-  const d2y = dy - cy
-  const den = d1x * d2y - d1y * d2x
-  if (den === 0) return false
-  const acx = cx - ax
-  const acy = cy - ay
-  const t = (acx * d2y - acy * d2x) / den
-  const u = (acx * d1y - acy * d1x) / den
-  return t > 0.02 && t < 0.998 && u > 0.001 && u < 0.999
+  return crossingT(ax, ay, bx, by, cx, cy, dx, dy) !== null
 }
 
 export interface Segment {

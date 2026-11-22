@@ -142,6 +142,6 @@ export function buildSampleProject(name: string): Project {
     aps: [ap],
     clients,
     isp: { downMbps: 100, upMbps: 50 },
-    propagation: { exponent: 2.2, autoClutter: true },
+    propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
   }
 }

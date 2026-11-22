@@ -12,8 +12,8 @@ export function createEmptyProject(name: string): Project {
     walls: [],
     aps: [],
     clients: [],
-    isp: { downMbps: 100, upMbps: 50 },
-    propagation: { exponent: 2.2, autoClutter: true },
+    isp: { downMbps: 100, upMbps: 50, pingMs: 8 },
+    propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
   }
 }
 
@@ -33,6 +33,7 @@ function asWalls(value: unknown): Wall[] {
         points,
         materialId: typeof item.materialId === 'string' ? item.materialId : 'drywall',
         closed: item.closed === true,
+        thicknessCm: typeof item.thicknessCm === 'number' ? item.thicknessCm : undefined,
       },
     ]
   })
@@ -118,14 +119,16 @@ export function parseProject(value: unknown): Project | null {
     ? {
         downMbps: typeof value.isp.downMbps === 'number' ? value.isp.downMbps : 100,
         upMbps: typeof value.isp.upMbps === 'number' ? value.isp.upMbps : 50,
+        pingMs: typeof value.isp.pingMs === 'number' ? value.isp.pingMs : 8,
       }
-    : { downMbps: 100, upMbps: 50 }
+    : { downMbps: 100, upMbps: 50, pingMs: 8 }
   const propagation = isRecord(value.propagation)
     ? {
-        exponent: typeof value.propagation.exponent === 'number' ? value.propagation.exponent : 2.2,
-        autoClutter: value.propagation.autoClutter !== false,
+        exponent: typeof value.propagation.exponent === 'number' ? value.propagation.exponent : 2.8,
+        autoClutter: false,
+        noiseExtraDb: typeof value.propagation.noiseExtraDb === 'number' ? value.propagation.noiseExtraDb : 3,
       }
-    : { exponent: 2.2, autoClutter: true }
+    : { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 }
   return {
     version: 1,
     id: value.id,

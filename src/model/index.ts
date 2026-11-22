@@ -20,7 +20,7 @@ export type {
   WifiGen,
 } from './types'
 
-export { MATERIALS, getMaterial, materialLoss } from './materials'
+export { MATERIALS, REFERENCE_THICKNESS_CM, SIMPLE_MATERIAL_IDS, getMaterial, materialLoss } from './materials'
 export {
   dist,
   distToSegment,
@@ -35,18 +35,38 @@ export {
 export {
   APPROX_METERS_PER_PIXEL,
   BAND_FREQ_MHZ,
-  BAND_NOISE_DBM,
+  DEFAULT_NOISE_EXTRA_DB,
+  NOISE_20MHZ_DBM,
+  NO_LINK_RSSI_DBM,
+  PL0_DB,
   WALL_LOSS_CAP_DB,
   buildSegments,
   computeRssiGrid,
   coverageFraction,
+  coverageZones,
   effectiveScale,
   fsplAt1m,
   linkBudget,
+  noiseFloorDbm,
   pathLossDb,
+  pl0Db,
   radioFor,
   resolveExponent,
   wallLossBetween,
 } from './pathloss'
-export { ACTIVITIES, ACTIVITY_IDS, estimateClients, macThroughputMbps, phyEfficiency, phyPerStreamMbps, scoreActivity } from './throughput'
-export { AP_PRESETS, AP_PRESET_IDS, CLIENT_PRESETS, CLIENT_PRESET_IDS } from './presets'
+export {
+  ACTIVITIES,
+  ACTIVITY_IDS,
+  MAC_ETA,
+  MCS_TABLE,
+  activityLevel,
+  estimateClients,
+  macThroughputMbps,
+  noiseAwarePhyMbps,
+  phyEfficiency,
+  phyMbpsFromSnr,
+  phyPerStreamMbps,
+  scoreActivity,
+  widthFactor,
+} from './throughput'
+export { AP_PRESETS, AP_PRESET_IDS, CLIENT_PRESETS, CLIENT_PRESET_IDS, EIRP_LIMIT_DBM } from './presets'

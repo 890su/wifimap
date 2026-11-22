@@ -14,6 +14,6 @@ export function qualityKey(score: number): MessageKey {
   if (score >= 85) return 'q.great'
   if (score >= 70) return 'q.good'
   if (score >= 50) return 'q.ok'
-  if (score >= 30) return 'q.poor'
+  if (score >= 20) return 'q.poor'
   return 'q.bad'
 }

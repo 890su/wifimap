@@ -5,6 +5,7 @@ import {
   effectiveScale,
   fsplAt1m,
   linkBudget,
+  noiseFloorDbm as noiseFromWidth,
   pathLossDb,
   resolveExponent,
   wallLossBetween,
@@ -12,7 +13,7 @@ import {
   computeRssiGrid,
 } from './pathloss'
 import { snapAngle, straightenFreehand, segmentsCross } from './geometry'
-import { estimateClients, phyEfficiency, scoreActivity } from './throughput'
+import { activityLevel, estimateClients, phyMbpsFromSnr, scoreActivity } from './throughput'
 import type { AccessPoint, ClientDevice, Project, Wall } from './types'
 
 function wall(id: string, points: number[], materialId = 'brick'): Wall {
@@ -66,22 +67,23 @@ describe('path loss', () => {
     expect(fsplAt1m(2437)).toBeCloseTo(40.19, 1)
     expect(fsplAt1m(5200)).toBeCloseTo(46.77, 1)
     expect(fsplAt1m(5200)).toBeGreaterThan(fsplAt1m(2437))
-    expect(pathLossDb(1, 2437, 2.2, 0)).toBeCloseTo(fsplAt1m(2437), 5)
+    expect(pathLossDb(1, 2437, 2.8, 0)).toBeCloseTo(40, 5)
+    expect(pathLossDb(1, 5200, 2.8, 0)).toBeCloseTo(47, 5)
   })
 
   it('grows with distance and exponent', () => {
-    const near = pathLossDb(2, 2437, 2.2, 0)
-    const far = pathLossDb(20, 2437, 2.2, 0)
+    const near = pathLossDb(2, 2437, 2.8, 0)
+    const far = pathLossDb(20, 2437, 2.8, 0)
     const steeper = pathLossDb(20, 2437, 3.4, 0)
     expect(far).toBeGreaterThan(near + 10)
     expect(steeper).toBeGreaterThan(far)
-    expect(pathLossDb(10, 2437, 2, 8)).toBeCloseTo(fsplAt1m(2437) + 20 + 8, 5)
+    expect(pathLossDb(10, 2437, 2.8, 0)).toBeCloseTo(40 + 28, 5)
   })
 
-  it('raises the exponent when no walls are drawn', () => {
-    expect(resolveExponent(2.2, 0, true)).toBe(3.5)
-    expect(resolveExponent(2.2, 3, true)).toBe(2.2)
-    expect(resolveExponent(2.2, 0, false)).toBe(2.2)
+  it('does not change the exponent when walls appear', () => {
+    expect(resolveExponent(2.8, 0, true)).toBe(2.8)
+    expect(resolveExponent(2.8, 3, true)).toBe(2.8)
+    expect(resolveExponent(2.8, 0, false)).toBe(2.8)
   })
 
   it('uses a measured scale and falls back when it is missing', () => {
@@ -96,7 +98,7 @@ describe('walls', () => {
     expect(segmentsCross(0, -10, 0, 10, -10, 0, 10, 0)).toBe(true)
     expect(segmentsCross(0, -10, 0, -1, -10, 0, 10, 0)).toBe(false)
     const segs = buildSegments([wall('h', [-10, 0, 10, 0], 'brick')], '2.4')
-    expect(wallLossBetween(0, -10, 0, 10, segs)).toBe(7)
+    expect(wallLossBetween(0, -10, 0, 10, segs)).toBe(9)
     expect(wallLossBetween(-30, -10, -30, 10, segs)).toBe(0)
   })
 
@@ -104,15 +106,15 @@ describe('walls', () => {
     const walls = [wall('a', [-10, 0, 10, 0], 'brick'), wall('b', [-10, 5, 10, 5], 'concrete')]
     const loss24 = wallLossBetween(0, -5, 0, 12, buildSegments(walls, '2.4'))
     const loss5 = wallLossBetween(0, -5, 0, 12, buildSegments(walls, '5'))
-    expect(loss24).toBe(7 + 12)
-    expect(loss5).toBe(11 + 19)
+    expect(loss24).toBe(9 + 12)
+    expect(loss5).toBe(15 + 20)
     expect(loss5).toBeGreaterThan(loss24)
   })
 
   it('caps stacked wall loss', () => {
-    const walls = Array.from({ length: 8 }, (_, i) => wall(`m${i}`, [-5, i, 5, i], 'metal'))
+    const walls = Array.from({ length: 4 }, (_, i) => wall(`m${i}`, [-5, i * 2, 5, i * 2], 'shaft'))
     const loss = wallLossBetween(0, -1, 0, 20, buildSegments(walls, '2.4'))
-    expect(loss).toBe(80)
+    expect(loss).toBe(60)
   })
 
   it('does not treat a shared room corner as two walls', () => {
@@ -171,7 +173,7 @@ describe('heatmap', () => {
       noiseDbm: -98,
     })
     expect(blocked.rssiDbm).toBeLessThan(open.rssiDbm - 15)
-    expect(blocked.wallLossDb).toBe(19)
+    expect(blocked.wallLossDb).toBe(20)
   })
 
   it('keeps the best of two access points', () => {
@@ -217,11 +219,10 @@ describe('heatmap', () => {
 })
 
 describe('throughput and scores', () => {
-  it('maps SNR to a rising PHY efficiency', () => {
-    expect(phyEfficiency(0)).toBe(0)
-    expect(phyEfficiency(30)).toBeGreaterThan(phyEfficiency(18))
-    expect(phyEfficiency(18)).toBeGreaterThan(phyEfficiency(10))
-    expect(phyEfficiency(40)).toBeLessThanOrEqual(0.93)
+  it('maps SNR onto the MCS table', () => {
+    expect(phyMbpsFromSnr(4, 'wifi6', 80, 2)).toBe(0)
+    expect(phyMbpsFromSnr(18, 'wifi6', 80, 2)).toBeCloseTo(51.6 * 4.19 * 2, 1)
+    expect(phyMbpsFromSnr(40, 'wifi4', 40, 1)).toBeCloseTo(86 * 2, 1)
   })
 
   it('gives a nearby client usable throughput on a wired AP', () => {
@@ -325,5 +326,84 @@ describe('freehand straightening', () => {
     const snapped = snapAngle({ x: 0, y: 0 }, { x: 100, y: 6 }, 12)
     expect(snapped.y).toBeCloseTo(0, 5)
     expect(snapped.x).toBeGreaterThan(99)
+  })
+})
+
+describe('specification reference values', () => {
+  it('uses the planning noise floor for the channel width and neighbours', () => {
+    expect(noiseFromWidth(20, 0)).toBeCloseTo(-95, 5)
+    expect(noiseFromWidth(80, 0)).toBeCloseTo(-89, 5)
+    expect(noiseFromWidth(160, 0)).toBeCloseTo(-86, 5)
+    expect(noiseFromWidth(80, 3)).toBeCloseTo(-86, 5)
+  })
+
+  it('rates −68 dBm on 80 MHz as MCS4, about 432 Mbit/s PHY', () => {
+    const noise = noiseFromWidth(80, 3)
+    const rssi = -68
+    const snr = rssi - noise
+    expect(snr).toBeCloseTo(18, 5)
+    expect(phyMbpsFromSnr(snr, 'wifi6', 80, 2)).toBeCloseTo(432.4, 0)
+  })
+
+  it('reports no connection at −82 dBm behind two concrete walls', () => {
+    const mpp = 0.02
+    const p = project({
+      propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+      isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
+      walls: [wall('c1', [200, -40, 200, 40], 'concrete'), wall('c2', [400, -40, 400, 40], 'concrete')],
+      aps: [ap({ id: 'a', x: 0, y: 0, band24: { enabled: false, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 } })],
+      clients: [client({ id: 'c', x: 700, y: 0 })],
+    })
+    const est = estimateClients(p, mpp, false)[0]
+    expect(est.band).toBe('5')
+    expect(est.wallLossDb).toBe(40)
+    expect(est.rssiDbm ?? 0).toBeLessThan(-82)
+    expect(est.downMbps).toBe(0)
+    expect(est.scores.surfing).toBe(0)
+    expect(est.scores.gaming).toBe(0)
+    expect(est.warnings).toContain('no-link')
+  })
+
+  it('does not improve a clear path when a wall is added off to the side', () => {
+    const open = project({
+      propagation: { exponent: 2.8, autoClutter: true, noiseExtraDb: 0 },
+      aps: [ap({ id: 'a', x: 0, y: 0 })],
+      clients: [client({ id: 'c', x: 500, y: 0 })],
+    })
+    const walled = project({
+      ...open,
+      walls: [wall('far', [900, -100, 900, 100], 'drywall')],
+    })
+    const a = estimateClients(open, 0.02, false)[0]
+    const b = estimateClients(walled, 0.02, false)[0]
+    expect(b.rssiDbm).toBeCloseTo(a.rssiDbm ?? 0, 5)
+    const direct = linkBudget({
+      x1: 0, y1: 0, x2: 500, y2: 0,
+      txPowerDbm: 20, gainDbi: 0,
+      segs: [], metersPerPixel: 0.02, freqMHz: 2437, exponent: 2.8, noiseDbm: -95,
+    })
+    expect(direct.rssiDbm).toBeCloseTo(-48, 5)
+  })
+
+  it('counts a shared room edge once', () => {
+    const shared = [
+      wall('left', [0, 0, 200, 0, 200, 200, 0, 200], 'brick'),
+      wall('right', [200, 0, 400, 0, 400, 200, 200, 200], 'brick'),
+    ]
+    shared[0].closed = true
+    shared[1].closed = true
+    const loss = wallLossBetween(100, 100, 300, 100, buildSegments(shared, '5'), 0.02)
+    expect(loss).toBe(15)
+  })
+
+  it('scores scenarios by the worst requirement in the specification', () => {
+    expect(activityLevel({ downMbps: 1, upMbps: 0.5, pingMs: 20, jitterMs: 2 }, 'surfing')).toBe(0)
+    expect(activityLevel({ downMbps: 1, upMbps: 0.5, pingMs: 20, jitterMs: 2 }, 'video')).toBe(0)
+    expect(activityLevel({ downMbps: 8, upMbps: 2, pingMs: 20, jitterMs: 2 }, 'video')).toBe(3)
+    expect(activityLevel({ downMbps: 25, upMbps: 5, pingMs: 20, jitterMs: 2 }, 'video')).toBe(4)
+    expect(activityLevel({ downMbps: 10, upMbps: 2, pingMs: 20, jitterMs: 2 }, 'broadcast')).toBe(0)
+    expect(activityLevel({ downMbps: 20, upMbps: 12, pingMs: 20, jitterMs: 2 }, 'broadcast')).toBe(4)
+    expect(scoreActivity({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2 }, 'gaming')).toBe(100)
+    expect(scoreActivity({ downMbps: 80, upMbps: 40, pingMs: 130, jitterMs: 20 }, 'gaming')).toBe(0)
   })
 })

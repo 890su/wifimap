@@ -31,7 +31,7 @@ export async function onRequestPost(context: { request: Request; env: Env }): Pr
     return Response.json({ error: 'invalid_json' }, { status: 400 })
   }
   const code = crypto.randomUUID().slice(0, 8)
-  await context.env.LINKS.put(`link:${code}`, JSON.stringify(body), { expirationTtl: 60 * 60 * 24 * 30 })
+  await context.env.LINKS.put(`link:${code}`, JSON.stringify(body), { expirationTtl: 60 * 60 * 24 * 90 })
   const url = new URL(context.request.url)
   return Response.json({ code, url: `${url.origin}/s/${code}` })
 }

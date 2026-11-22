@@ -26,6 +26,8 @@ export interface Wall {
   materialId: string
   /** When true, the last vertex connects back to the first (a room). */
   closed?: boolean
+  /** Optional thickness. Loss scales against the 12 cm reference. */
+  thicknessCm?: number
 }
 
 export interface AccessPoint {
@@ -50,6 +52,8 @@ export interface ClientDevice {
   wifiGen: WifiGen
   mimo: number
   supports5: boolean
+  txPowerDbm?: number
+  gainDbi?: number
 }
 
 export interface FloorPlan {
@@ -70,8 +74,8 @@ export interface Project {
   walls: Wall[]
   aps: AccessPoint[]
   clients: ClientDevice[]
-  isp: { downMbps: number; upMbps: number }
-  propagation: { exponent: number; autoClutter: boolean }
+  isp: { downMbps: number; upMbps: number; pingMs?: number }
+  propagation: { exponent: number; autoClutter: boolean; noiseExtraDb?: number }
 }
 
 export interface Material {
@@ -86,7 +90,7 @@ export interface Point {
   y: number
 }
 
-export type WarningCode = 'no-ap' | 'weak-signal' | 'approx-scale' | 'wireless-backhaul' | 'no-parent'
+export type WarningCode = 'no-ap' | 'no-link' | 'weak-signal' | 'approx-scale' | 'wireless-backhaul' | 'no-parent' | 'eirp'
 
 export interface ClientEstimate {
   clientId: string

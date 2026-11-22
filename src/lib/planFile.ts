@@ -38,7 +38,8 @@ async function imageFileToPlan(file: File): Promise<FloorPlan> {
   const scale = Math.min(1, maxDim / Math.max(image.width, image.height))
   const width = Math.max(1, Math.round(image.width * scale))
   const height = Math.max(1, Math.round(image.height * scale))
-  return raster(image, width, height, 'image/jpeg')
+  const keepPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
+  return raster(image, width, height, keepPng ? 'image/png' : 'image/jpeg')
 }
 
 export async function fileToPlan(file: File): Promise<FloorPlan> {

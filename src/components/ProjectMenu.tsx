@@ -7,6 +7,7 @@ export function ProjectMenu({
   onCamera,
   onOpenJson,
   onSaveJson,
+  onSaveJsonBare,
   onExportPng,
   onShare,
 }: {
@@ -14,6 +15,7 @@ export function ProjectMenu({
   onCamera: () => void
   onOpenJson: () => void
   onSaveJson: () => void
+  onSaveJsonBare: () => void
   onExportPng: () => void
   onShare: () => void
 }) {
@@ -41,7 +43,7 @@ export function ProjectMenu({
 
   return (
     <div className="menu" ref={root}>
-      <button type="button" className="btn btn-primary" aria-haspopup="menu" aria-expanded={open} aria-label={t('a11y.menu')} onClick={() => setOpen((value) => !value)}>
+      <button type="button" className="btn btn-primary" data-testid="project-menu" aria-haspopup="menu" aria-expanded={open} aria-label={t('a11y.menu')} onClick={() => setOpen((value) => !value)}>
         {t('project.menu')}
       </button>
       {open && (
@@ -51,8 +53,11 @@ export function ProjectMenu({
           <button type="button" className="mobile-only" onClick={() => run(onCamera)}>{t('project.camera')}</button>
           <button type="button" onClick={() => run(onOpenJson)}>{t('project.openJson')}</button>
           <button type="button" onClick={() => run(onSaveJson)}>{t('project.saveJson')}</button>
+          <button type="button" onClick={() => run(onSaveJsonBare)}>{t('project.saveJsonBare')}</button>
           <button type="button" onClick={() => run(onExportPng)}>{t('project.exportPng')}</button>
-          <button type="button" onClick={() => run(onShare)}>{t('project.share')}</button>
+          {import.meta.env.VITE_SHORT_LINKS === 'true' && (
+            <button type="button" onClick={() => run(onShare)}>{t('project.share')}</button>
+          )}
           <p className="menu-label">{t('project.saved')}</p>
           {saved.length === 0 && <p className="menu-empty">{t('project.emptySaved')}</p>}
           {saved.slice(0, 8).map((item) => (

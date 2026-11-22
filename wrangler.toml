@@ -6,6 +6,8 @@ pages_build_output_dir = "dist"
 
 [vars]
 SHORT_LINKS_ENABLED = "false"
+# Space-separated parent origins, or * . The Pages middleware applies this.
+FRAME_ANCESTORS = "*"
 
 # Optional KV for short links. Create a namespace, then uncomment:
 #   npx wrangler kv namespace create LINKS

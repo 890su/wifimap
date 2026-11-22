@@ -14,11 +14,11 @@ const TOOL_KEYS: Record<string, Tool> = {
   KeyV: 'select',
   KeyH: 'pan',
   KeyS: 'scale',
-  KeyL: 'wall',
+  KeyW: 'wall',
   KeyR: 'room',
   KeyP: 'pencil',
   KeyA: 'ap',
-  KeyC: 'client',
+  KeyD: 'client',
 }
 
 function typingTarget(target: EventTarget | null): boolean {
@@ -85,6 +85,22 @@ export function App({ embed }: { embed: boolean }) {
   }, [hydrated])
 
   useEffect(() => {
+    if (!embed) return
+    const send = () => {
+      const height = Math.max(640, document.documentElement.scrollHeight, document.body.scrollHeight)
+      window.parent.postMessage({ type: 'wifiplan:height', height }, '*')
+    }
+    send()
+    const observer = new ResizeObserver(send)
+    observer.observe(document.documentElement)
+    window.addEventListener('resize', send)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', send)
+    }
+  }, [embed])
+
+  useEffect(() => {
     if (!toast) return
     const timer = window.setTimeout(() => setToast(null), 3400)
     return () => window.clearTimeout(timer)
@@ -142,9 +158,10 @@ export function App({ embed }: { embed: boolean }) {
     }
   }
 
-  const saveJson = () => {
+  const saveJson = (bare = false) => {
     const project = useEditor.getState().project
-    const blob = new Blob([JSON.stringify(project)], { type: 'application/json' })
+    const payload = bare ? { ...project, floorPlan: null } : project
+    const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
@@ -184,7 +201,8 @@ export function App({ embed }: { embed: boolean }) {
         onUpload={() => planRef.current?.click()}
         onCamera={() => cameraRef.current?.click()}
         onOpenJson={() => jsonRef.current?.click()}
-        onSaveJson={saveJson}
+        onSaveJson={() => saveJson(false)}
+        onSaveJsonBare={() => saveJson(true)}
         onExportPng={() => stageRef.current?.exportPng()}
         onShare={() => void share()}
       />

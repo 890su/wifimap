@@ -1,5 +1,6 @@
-import { buildSegments, BAND_FREQ_MHZ, BAND_NOISE_DBM, linkBudget, radioFor, resolveExponent } from './pathloss'
+import { buildSegments, linkBudget, noiseFloorDbm, NO_LINK_RSSI_DBM, radioFor, resolveExponent } from './pathloss'
 import type { Segment } from './geometry'
+import { CLIENT_PRESETS } from './presets'
 import type {
   AccessPoint,
   ActivityId,
@@ -11,22 +12,45 @@ import type {
   WifiGen,
 } from './types'
 
-export const ACTIVITIES: Record<ActivityId, { down: number; up: number; ping: number; jitter: number }> = {
-  surfing: { down: 5, up: 1, ping: 150, jitter: 40 },
-  video: { down: 8, up: 1.5, ping: 100, jitter: 30 },
-  calls: { down: 2.5, up: 2.5, ping: 80, jitter: 20 },
-  broadcast: { down: 6, up: 8, ping: 100, jitter: 25 },
-  gaming: { down: 3, up: 1, ping: 35, jitter: 12 },
-  cloud: { down: 25, up: 6, ping: 30, jitter: 8 },
-}
-
 export const ACTIVITY_IDS: ActivityId[] = ['surfing', 'video', 'calls', 'broadcast', 'gaming', 'cloud']
 
-const PHY_PER_STREAM: Record<WifiGen, Record<number, number>> = {
-  wifi4: { 20: 72, 40: 150 },
-  wifi5: { 20: 87, 40: 200, 80: 433, 160: 867 },
-  wifi6: { 20: 143, 40: 287, 80: 600, 160: 1201 },
+/** Kept so older imports still resolve. Thresholds now live in {@link activityLevel}. */
+export const ACTIVITIES: Record<ActivityId, { down: number; up: number; ping: number; jitter: number }> = {
+  surfing: { down: 5, up: 1, ping: 100, jitter: 30 },
+  video: { down: 8, up: 1, ping: 100, jitter: 30 },
+  calls: { down: 1.5, up: 1.5, ping: 150, jitter: 30 },
+  broadcast: { down: 1, up: 6, ping: 100, jitter: 30 },
+  gaming: { down: 3, up: 1, ping: 60, jitter: 15 },
+  cloud: { down: 15, up: 3, ping: 50, jitter: 15 },
 }
+
+/** 802.11 PHY rate for one stream at 20 MHz, and the SNR required to hold that MCS. */
+export const MCS_TABLE: { mcs: number; snr: number; mbps20: number }[] = [
+  { mcs: 0, snr: 5, mbps20: 8.6 },
+  { mcs: 1, snr: 8, mbps20: 17.2 },
+  { mcs: 2, snr: 11, mbps20: 25.8 },
+  { mcs: 3, snr: 14, mbps20: 34.4 },
+  { mcs: 4, snr: 17, mbps20: 51.6 },
+  { mcs: 5, snr: 21, mbps20: 68.8 },
+  { mcs: 6, snr: 23.5, mbps20: 77.4 },
+  { mcs: 7, snr: 26, mbps20: 86 },
+  { mcs: 8, snr: 28.5, mbps20: 103.2 },
+  { mcs: 9, snr: 31, mbps20: 114.7 },
+  { mcs: 10, snr: 33.5, mbps20: 129 },
+  { mcs: 11, snr: 36, mbps20: 143.4 },
+  { mcs: 12, snr: 38.5, mbps20: 154.9 },
+  { mcs: 13, snr: 41, mbps20: 172.1 },
+]
+
+const WIDTH_FACTORS: [number, number][] = [
+  [20, 1],
+  [40, 2],
+  [80, 4.19],
+  [160, 8.37],
+  [320, 16.75],
+]
+
+export const MAC_ETA: Record<WifiGen, number> = { wifi4: 0.5, wifi5: 0.6, wifi6: 0.65 }
 
 const GEN_RANK: Record<WifiGen, number> = { wifi4: 4, wifi5: 5, wifi6: 6 }
 
@@ -34,57 +58,107 @@ function olderGen(a: WifiGen, b: WifiGen): WifiGen {
   return GEN_RANK[a] <= GEN_RANK[b] ? a : b
 }
 
-function maxWidth(gen: WifiGen): number {
-  return gen === 'wifi4' ? 40 : 160
+function maxMcs(gen: WifiGen): number {
+  if (gen === 'wifi4') return 7
+  if (gen === 'wifi5') return 9
+  return 11
+}
+
+export function widthFactor(widthMHz: number): number {
+  let factor = 1
+  for (const [width, value] of WIDTH_FACTORS) if (widthMHz + 1e-6 >= width) factor = value
+  return factor
+}
+
+/** Highest MCS the SNR can hold, times the channel-width factor and spatial streams. */
+export function phyMbpsFromSnr(snrDb: number, gen: WifiGen, widthMHz: number, streams: number): number {
+  if (snrDb < 5) return 0
+  const cap = maxMcs(gen)
+  let rate = 0
+  for (const row of MCS_TABLE) {
+    if (row.mcs > cap) break
+    if (snrDb + 1e-6 >= row.snr) rate = row.mbps20
+  }
+  return rate * widthFactor(widthMHz) * Math.max(1, streams)
+}
+
+/** @deprecated Smooth curve kept only so older tests can import a monotonic helper. */
+export function phyEfficiency(snrDb: number): number {
+  if (snrDb < 5) return 0
+  const cap = phyMbpsFromSnr(snrDb, 'wifi6', 20, 1)
+  return Math.min(1, cap / 143.4)
 }
 
 export function phyPerStreamMbps(gen: WifiGen, widthMHz: number): number {
-  const table = PHY_PER_STREAM[gen]
-  const widths = Object.keys(table)
-    .map(Number)
-    .sort((a, b) => a - b)
-  let chosen = widths[0]
-  const capped = Math.min(widthMHz, maxWidth(gen))
-  for (const w of widths) if (w <= capped) chosen = w
-  return table[chosen]
+  return phyMbpsFromSnr(80, gen, widthMHz, 1)
 }
 
-/** Fraction of the peak PHY rate that a given SNR can hold, 0..0.93. */
-export function phyEfficiency(snrDb: number): number {
-  if (snrDb <= 4) return 0
-  const logistic = 1 / (1 + Math.exp(-(snrDb - 18) / 4.2))
-  return Math.min(0.93, Math.max(0, logistic))
+export function macThroughputMbps(phyMbps: number, gen: WifiGen = 'wifi6'): number {
+  return phyMbps * MAC_ETA[gen]
 }
 
-const MAC_EFFICIENCY = 0.62
-
-export function macThroughputMbps(phyMbps: number, snrDb: number): number {
-  return phyMbps * phyEfficiency(snrDb) * MAC_EFFICIENCY
+export function noiseAwarePhyMbps(rssiDbm: number, snrDb: number, gen: WifiGen, widthMHz: number, streams: number): number {
+  if (rssiDbm < NO_LINK_RSSI_DBM || snrDb < 5) return 0
+  return phyMbpsFromSnr(snrDb, gen, widthMHz, streams)
 }
 
-function higherScore(actual: number, need: number): number {
-  if (need <= 0) return 1
-  if (actual >= need) return 1
-  return Math.max(0, actual / need)
+function levelAt(value: number, bands: [number, number][]): number {
+  let level = 0
+  for (const [threshold, next] of bands) if (value >= threshold) level = next
+  return level
 }
 
-function lowerScore(actual: number, limit: number): number {
-  if (actual <= limit) return 1
-  if (actual <= 0) return 0
-  return Math.max(0, limit / actual)
+function lowerLevel(value: number, excellent: number, good: number, mid: number): number {
+  if (value < excellent) return 4
+  if (value < good) return 3
+  if (value <= mid) return 2
+  if (value <= mid * 1.4) return 1
+  return 0
+}
+
+/**
+ * 0–4 from the specification thresholds. The result is the worst component.
+ * 4 отлично, 3 хорошо, 2 нормально, 1 слабо, 0 плохо.
+ */
+export function activityLevel(
+  metrics: { downMbps: number; upMbps: number; pingMs: number; jitterMs: number; lossPct?: number },
+  activity: ActivityId,
+): number {
+  if (metrics.downMbps <= 0 && metrics.upMbps <= 0) return 0
+  const loss = metrics.lossPct ?? 0
+  if (activity === 'surfing') {
+    return Math.min(levelAt(metrics.downMbps, [[2, 2], [5, 3], [25, 4]]), lowerLevel(metrics.pingMs, 50, 100, 200))
+  }
+  if (activity === 'video') {
+    return levelAt(metrics.downMbps, [[3, 1], [5, 2], [8, 3], [25, 4]])
+  }
+  if (activity === 'calls') {
+    return Math.min(
+      levelAt(metrics.downMbps, [[0.5, 1], [1.5, 3], [4, 4]]),
+      levelAt(metrics.upMbps, [[0.5, 1], [1.5, 3], [4, 4]]),
+      lowerLevel(metrics.pingMs, 50, 150, 250),
+      lowerLevel(metrics.jitterMs, 10, 30, 50),
+    )
+  }
+  if (activity === 'broadcast') {
+    return levelAt(metrics.upMbps, [[3, 1], [4, 2], [6, 3], [12, 4]])
+  }
+  if (activity === 'gaming') {
+    if (loss > 2 || metrics.pingMs > 120) return 0
+    return Math.min(
+      lowerLevel(metrics.pingMs, 30, 60, 120),
+      lowerLevel(metrics.jitterMs, 5, 15, 30),
+      loss < 0.5 ? 4 : loss < 1 ? 3 : 1,
+    )
+  }
+  return Math.min(levelAt(metrics.downMbps, [[5, 1], [10, 2], [15, 3], [35, 4]]), lowerLevel(metrics.pingMs, 30, 50, 80))
 }
 
 export function scoreActivity(
-  metrics: { downMbps: number; upMbps: number; pingMs: number; jitterMs: number },
+  metrics: { downMbps: number; upMbps: number; pingMs: number; jitterMs: number; lossPct?: number },
   activity: ActivityId,
 ): number {
-  const spec = ACTIVITIES[activity]
-  const s =
-    0.35 * higherScore(metrics.downMbps, spec.down) +
-    0.2 * higherScore(metrics.upMbps, spec.up) +
-    0.3 * lowerScore(metrics.pingMs, spec.ping) +
-    0.15 * lowerScore(metrics.jitterMs, spec.jitter)
-  return Math.round(s * 100)
+  return activityLevel(metrics, activity) * 25
 }
 
 function emptyScores(): Record<ActivityId, number> {
@@ -95,57 +169,70 @@ function isWired(backhaul: Backhaul): boolean {
   return backhaul === 'wired' || backhaul === 'mesh-wired'
 }
 
+function clientTx(client: ClientDevice): { tx: number; gain: number } {
+  const preset = CLIENT_PRESETS[client.preset]
+  return {
+    tx: client.txPowerDbm ?? preset.txPowerDbm ?? 17,
+    gain: client.gainDbi ?? preset.gainDbi ?? 0,
+  }
+}
+
+interface AirLink {
+  mbps: number
+  upMbps: number
+  phy: number
+  rssi: number
+  snr: number
+  distanceM: number
+  wallLossDb: number
+}
+
+function airLink(
+  ap: AccessPoint,
+  client: { x: number; y: number; wifiGen: WifiGen; mimo: number; tx: number; gain: number },
+  band: BandId,
+  segs: Segment[],
+  metersPerPixel: number,
+  exponent: number,
+  noiseExtraDb: number,
+): AirLink {
+  const radio = radioFor(ap, band)
+  const common = {
+    x1: ap.x,
+    y1: ap.y,
+    x2: client.x,
+    y2: client.y,
+    segs,
+    metersPerPixel,
+    freqMHz: band === '2.4' ? 2437 : 5200,
+    exponent,
+    noiseDbm: noiseFloorDbm(radio.channelWidthMHz, noiseExtraDb),
+  }
+  const down = linkBudget({ ...common, txPowerDbm: radio.txPowerDbm, gainDbi: radio.gainDbi, rxGainDbi: client.gain })
+  const up = linkBudget({ ...common, txPowerDbm: client.tx, gainDbi: client.gain, rxGainDbi: radio.gainDbi })
+  const gen = olderGen(ap.wifiGen, client.wifiGen)
+  const streams = Math.max(1, Math.min(ap.mimo, client.mimo))
+  const dead = down.rssiDbm < NO_LINK_RSSI_DBM || down.snrDb < 5
+  const phy = dead ? 0 : phyMbpsFromSnr(down.snrDb, gen, radio.channelWidthMHz, streams)
+  const upPhy = up.rssiDbm < NO_LINK_RSSI_DBM || up.snrDb < 5 ? 0 : phyMbpsFromSnr(up.snrDb, gen, radio.channelWidthMHz, streams)
+  return {
+    mbps: phy * MAC_ETA[gen],
+    upMbps: upPhy * MAC_ETA[gen],
+    phy,
+    rssi: down.rssiDbm,
+    snr: down.snrDb,
+    distanceM: down.distanceM,
+    wallLossDb: down.wallLossDb,
+  }
+}
+
 interface Uplink {
   capMbps: number
   wireless: boolean
   hasParent: boolean
-}
-
-function bandsOf(ap: AccessPoint, prefer5: boolean): BandId[] {
-  const out: BandId[] = []
-  if (prefer5 && ap.band5.enabled) out.push('5')
-  if (ap.band24.enabled) out.push('2.4')
-  if (!prefer5 && ap.band5.enabled && !out.includes('5')) out.push('5')
-  return out
-}
-
-function airLinkMbps(
-  from: { x: number; y: number; wifiGen: WifiGen; mimo: number },
-  to: { x: number; y: number; wifiGen: WifiGen; mimo: number },
-  band: BandId,
-  txPowerDbm: number,
-  gainDbi: number,
-  widthMHz: number,
-  segs: Segment[],
-  metersPerPixel: number,
-  exponent: number,
-): { mbps: number; rssi: number; snr: number; distanceM: number; wallLossDb: number } | null {
-  const budget = linkBudget({
-    x1: from.x,
-    y1: from.y,
-    x2: to.x,
-    y2: to.y,
-    txPowerDbm,
-    gainDbi,
-    segs,
-    metersPerPixel,
-    freqMHz: BAND_FREQ_MHZ[band],
-    exponent,
-    noiseDbm: BAND_NOISE_DBM[band],
-  })
-  if (budget.snrDb < 4) {
-    return { mbps: 0, rssi: budget.rssiDbm, snr: budget.snrDb, distanceM: budget.distanceM, wallLossDb: budget.wallLossDb }
-  }
-  const gen = olderGen(from.wifiGen, to.wifiGen)
-  const streams = Math.max(1, Math.min(from.mimo, to.mimo))
-  const phy = phyPerStreamMbps(gen, widthMHz) * streams
-  return {
-    mbps: macThroughputMbps(phy, budget.snrDb),
-    rssi: budget.rssiDbm,
-    snr: budget.snrDb,
-    distanceM: budget.distanceM,
-    wallLossDb: budget.wallLossDb,
-  }
+  parentId: string | null
+  band: BandId | null
+  penalty: number
 }
 
 function backhaulOf(
@@ -154,48 +241,50 @@ function backhaulOf(
   segsByBand: Record<BandId, Segment[]>,
   metersPerPixel: number,
   exponent: number,
+  noiseExtraDb: number,
 ): Uplink {
-  if (isWired(ap.backhaul)) return { capMbps: 2500, wireless: false, hasParent: true }
+  const wiredCap = 1000 * 0.94
+  if (isWired(ap.backhaul)) return { capMbps: wiredCap, wireless: false, hasParent: true, parentId: null, band: null, penalty: 1 }
   let best = 0
-  let found = false
+  let parentId: string | null = null
+  let band: BandId | null = null
   for (const parent of aps) {
     if (parent.id === ap.id || !isWired(parent.backhaul)) continue
-    const bands = bandsOf(parent, true).filter((b) => radioFor(ap, b).enabled)
-    for (const band of bands) {
-      const radio = radioFor(parent, band)
-      const link = airLinkMbps(
-        { x: parent.x, y: parent.y, wifiGen: parent.wifiGen, mimo: parent.mimo },
-        { x: ap.x, y: ap.y, wifiGen: ap.wifiGen, mimo: ap.mimo },
-        band,
-        radio.txPowerDbm,
-        radio.gainDbi,
-        radio.channelWidthMHz,
-        segsByBand[band],
+    const bands: BandId[] = []
+    if (parent.band5.enabled && ap.band5.enabled) bands.push('5')
+    if (parent.band24.enabled && ap.band24.enabled) bands.push('2.4')
+    for (const candidate of bands) {
+      const link = airLink(
+        parent,
+        { x: ap.x, y: ap.y, wifiGen: ap.wifiGen, mimo: ap.mimo, tx: radioFor(ap, candidate).txPowerDbm, gain: radioFor(ap, candidate).gainDbi },
+        candidate,
+        segsByBand[candidate],
         metersPerPixel,
         exponent,
+        noiseExtraDb,
       )
-      if (!link) continue
-      found = true
-      const factor = ap.backhaul === 'repeater' ? 0.45 : 0.55
-      best = Math.max(best, link.mbps * factor)
+      if (link.mbps > best) {
+        best = link.mbps
+        parentId = parent.id
+        band = candidate
+      }
     }
   }
-  if (!found) return { capMbps: 12, wireless: true, hasParent: false }
-  return { capMbps: best, wireless: true, hasParent: true }
+  const penalty = ap.backhaul === 'repeater' || ap.backhaul === 'mesh-wireless' ? 0.5 : 1
+  if (!parentId) return { capMbps: 0, wireless: true, hasParent: false, parentId: null, band: null, penalty }
+  return { capMbps: best, wireless: true, hasParent: true, parentId, band, penalty }
 }
 
 interface Choice {
   ap: AccessPoint
   band: BandId
-  linkMbps: number
-  rssi: number
-  snr: number
-  distanceM: number
-  wallLossDb: number
+  link: AirLink
   uplink: Uplink
 }
 
-function disconnected(client: ClientDevice, approximate: boolean): ClientEstimate {
+function disconnected(client: ClientDevice, approximate: boolean, warning: 'no-ap' | 'no-link' | 'weak-signal'): ClientEstimate {
+  const warnings: ClientEstimate['warnings'] = [warning]
+  if (approximate) warnings.push('approx-scale')
   return {
     clientId: client.id,
     apId: null,
@@ -211,7 +300,7 @@ function disconnected(client: ClientDevice, approximate: boolean): ClientEstimat
     pingMs: null,
     jitterMs: null,
     scores: emptyScores(),
-    warnings: approximate ? ['no-ap', 'approx-scale'] : ['no-ap'],
+    warnings,
   }
 }
 
@@ -220,112 +309,99 @@ export function estimateClients(
   metersPerPixel: number,
   approximateScale: boolean,
 ): ClientEstimate[] {
-  const exponent = resolveExponent(project.propagation.exponent, project.walls.length, project.propagation.autoClutter)
+  const exponent = resolveExponent(project.propagation.exponent)
+  const noiseExtraDb = project.propagation.noiseExtraDb ?? 3
   const segsByBand: Record<BandId, Segment[]> = {
     '2.4': buildSegments(project.walls, '2.4'),
     '5': buildSegments(project.walls, '5'),
   }
   const uplinks = new Map<string, Uplink>()
-  for (const ap of project.aps) {
-    uplinks.set(ap.id, backhaulOf(ap, project.aps, segsByBand, metersPerPixel, exponent))
-  }
+  for (const ap of project.aps) uplinks.set(ap.id, backhaulOf(ap, project.aps, segsByBand, metersPerPixel, exponent, noiseExtraDb))
 
   const choices = new Map<string, Choice | null>()
   for (const client of project.clients) {
+    const tx = clientTx(client)
     let best: Choice | null = null
     for (const ap of project.aps) {
       const bands: BandId[] = []
       if (client.supports5 && ap.band5.enabled) bands.push('5')
       if (ap.band24.enabled) bands.push('2.4')
       for (const band of bands) {
-        const radio = radioFor(ap, band)
-        const link = airLinkMbps(
-          { x: ap.x, y: ap.y, wifiGen: ap.wifiGen, mimo: ap.mimo },
-          { x: client.x, y: client.y, wifiGen: client.wifiGen, mimo: client.mimo },
-          band,
-          radio.txPowerDbm,
-          radio.gainDbi,
-          radio.channelWidthMHz,
-          segsByBand[band],
-          metersPerPixel,
-          exponent,
-        )
-        if (!link) continue
+        const link = airLink(ap, { x: client.x, y: client.y, wifiGen: client.wifiGen, mimo: client.mimo, ...tx }, band, segsByBand[band], metersPerPixel, exponent, noiseExtraDb)
         const uplink = uplinks.get(ap.id)!
         const limited = Math.min(link.mbps, uplink.capMbps)
-        const candidate: Choice = { ap, band, linkMbps: link.mbps, rssi: link.rssi, snr: link.snr, distanceM: link.distanceM, wallLossDb: link.wallLossDb, uplink }
-        if (!best || limited > Math.min(best.linkMbps, best.uplink.capMbps)) best = candidate
+        if (!best || limited > Math.min(best.link.mbps, best.uplink.capMbps)) best = { ap, band, link, uplink }
       }
     }
     choices.set(client.id, best)
   }
 
   const perRadio = new Map<string, number>()
-  const perAp = new Map<string, number>()
   for (const choice of choices.values()) {
-    if (!choice) continue
-    const radioKey = `${choice.ap.id}:${choice.band}`
-    perRadio.set(radioKey, (perRadio.get(radioKey) ?? 0) + 1)
-    perAp.set(choice.ap.id, (perAp.get(choice.ap.id) ?? 0) + 1)
+    if (!choice || choice.link.mbps <= 0) continue
+    const key = `${choice.ap.id}:${choice.band}`
+    perRadio.set(key, (perRadio.get(key) ?? 0) + 1)
   }
+  for (const uplink of uplinks.values()) {
+    if (!uplink.parentId || !uplink.band) continue
+    const key = `${uplink.parentId}:${uplink.band}`
+    perRadio.set(key, (perRadio.get(key) ?? 0) + 1)
+  }
+
   const nClients = Math.max(1, project.clients.length)
   const ispDown = Math.max(0, project.isp.downMbps) / nClients
   const ispUp = Math.max(0, project.isp.upMbps) / nClients
+  const ispPing = project.isp.pingMs ?? 8
 
   return project.clients.map((client) => {
-    const choice = choices.get(client.id)
-    if (!choice || choice.linkMbps <= 0) {
-      const base = disconnected(client, approximateScale)
-      if (project.aps.length > 0) {
-        base.warnings = base.warnings.filter((w) => w !== 'no-ap')
-        base.warnings.unshift('weak-signal')
-        if (choice) {
-          base.apId = choice.ap.id
-          base.apName = choice.ap.name
-          base.band = choice.band
-          base.rssiDbm = choice.rssi
-          base.snrDb = choice.snr
-          base.distanceM = choice.distanceM
-          base.wallLossDb = choice.wallLossDb
-        }
+    const choice = choices.get(client.id) ?? null
+    if (!choice || choice.link.mbps <= 0) {
+      const estimate = disconnected(client, approximateScale, project.aps.length === 0 ? 'no-ap' : 'no-link')
+      if (choice) {
+        estimate.apId = choice.ap.id
+        estimate.apName = choice.ap.name
+        estimate.band = choice.band
+        estimate.rssiDbm = choice.link.rssi
+        estimate.snrDb = choice.link.snr
+        estimate.distanceM = choice.link.distanceM
+        estimate.wallLossDb = choice.link.wallLossDb
       }
-      return base
+      return estimate
     }
 
-    const nRadio = perRadio.get(`${choice.ap.id}:${choice.band}`) ?? 1
-    const nAp = perAp.get(choice.ap.id) ?? 1
-    const down = Math.max(0, Math.min(choice.linkMbps / nRadio, choice.uplink.capMbps / nAp, ispDown))
-    const upLink = choice.linkMbps * 0.85
-    const up = Math.max(0, Math.min(upLink / nRadio, choice.uplink.capMbps / nAp, ispUp))
-
-    const wifiLatency = choice.snr >= 28 ? 2 : choice.snr >= 20 ? 5 : choice.snr >= 14 ? 12 : choice.snr >= 8 ? 25 : 55
-    const hop = choice.uplink.wireless ? 8 + wifiLatency * 0.45 : 1
-    const pingMs = 8 + wifiLatency + hop
-    const jitterMs = Math.max(1, wifiLatency * 0.4 + (choice.uplink.wireless ? 4 : 0.8))
-    const metrics = { downMbps: down, upMbps: up, pingMs, jitterMs }
+    const shares = Math.max(1, perRadio.get(`${choice.ap.id}:${choice.band}`) ?? 1)
+    const penalty = choice.uplink.penalty
+    const down = Math.max(0, Math.min((choice.link.mbps * penalty) / shares, choice.uplink.capMbps, ispDown))
+    const up = Math.max(0, Math.min((choice.link.upMbps * penalty) / shares, choice.uplink.capMbps, ispUp))
+    const twifi = choice.link.snr > 25 ? 2 : choice.link.snr > 15 ? 5 : 8
+    const hop = choice.uplink.wireless ? 4 : 0.2
+    const queue = down > 0 && down >= ispDown * 0.8 ? 12 : 0
+    const pingMs = ispPing + twifi + hop + queue
+    const jitterMs = 1 + (choice.link.snr < 15 ? 4 : 0) + (choice.uplink.wireless ? 2 : 0)
+    const lossPct = choice.link.snr - 5 < 3 ? 4 : choice.link.snr < 15 ? 0.8 : 0.1
+    const metrics = { downMbps: down, upMbps: up, pingMs, jitterMs, lossPct }
     const scores = emptyScores()
     for (const id of ACTIVITY_IDS) scores[id] = scoreActivity(metrics, id)
 
     const warnings: ClientEstimate['warnings'] = []
     if (approximateScale) warnings.push('approx-scale')
-    if (choice.rssi < -75 || choice.snr < 10) warnings.push('weak-signal')
+    if (choice.link.rssi < -75) warnings.push('weak-signal')
     if (choice.uplink.wireless) warnings.push('wireless-backhaul')
     if (!choice.uplink.hasParent) warnings.push('no-parent')
-
-    const gen = olderGen(choice.ap.wifiGen, client.wifiGen)
-    const streams = Math.max(1, Math.min(choice.ap.mimo, client.mimo))
-    const phyMbps = phyPerStreamMbps(gen, radioFor(choice.ap, choice.band).channelWidthMHz) * streams * phyEfficiency(choice.snr)
+    const radio = radioFor(choice.ap, choice.band)
+    const limit = choice.band === '2.4' ? 20 : 23
+    if (radio.txPowerDbm + radio.gainDbi > limit + 0.1) warnings.push('eirp')
 
     return {
       clientId: client.id,
       apId: choice.ap.id,
       apName: choice.ap.name,
       band: choice.band,
-      distanceM: choice.distanceM,
-      wallLossDb: choice.wallLossDb,
-      rssiDbm: choice.rssi,
-      snrDb: choice.snr,
-      phyMbps,
+      distanceM: choice.link.distanceM,
+      wallLossDb: choice.link.wallLossDb,
+      rssiDbm: choice.link.rssi,
+      snrDb: choice.link.snr,
+      phyMbps: choice.link.phy,
       downMbps: down,
       upMbps: up,
       pingMs,

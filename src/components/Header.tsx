@@ -11,6 +11,7 @@ export function Header({
   onCamera,
   onOpenJson,
   onSaveJson,
+  onSaveJsonBare,
   onExportPng,
   onShare,
 }: {
@@ -19,6 +20,7 @@ export function Header({
   onCamera: () => void
   onOpenJson: () => void
   onSaveJson: () => void
+  onSaveJsonBare: () => void
   onExportPng: () => void
   onShare: () => void
 }) {
@@ -73,11 +75,28 @@ export function Header({
           <button type="button" className={lang === 'ru' ? 'on' : ''} onClick={() => setLang('ru')}>{t('lang.ru')}</button>
           <button type="button" className={lang === 'en' ? 'on' : ''} onClick={() => setLang('en')}>{t('lang.en')}</button>
         </div>
+        {embed && (
+          <button
+            type="button"
+            className="icon-btn"
+            data-testid="embed-fullscreen"
+            aria-label={t('embed.fullscreen')}
+            title={t('embed.fullscreen')}
+            onClick={() => {
+              const url = new URL(window.location.href)
+              url.searchParams.delete('embed')
+              window.open(url.toString(), '_blank', 'noopener')
+            }}
+          >
+            ⛶
+          </button>
+        )}
         <ProjectMenu
           onUpload={onUpload}
           onCamera={onCamera}
           onOpenJson={onOpenJson}
           onSaveJson={onSaveJson}
+          onSaveJsonBare={onSaveJsonBare}
           onExportPng={onExportPng}
           onShare={onShare}
         />

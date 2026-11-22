@@ -89,6 +89,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
   const pointers = useRef(new Map<number, Point>())
   const pinch = useRef<{ dist: number; view: View; midX: number; midY: number } | null>(null)
   const space = useRef(false)
+  const altRef = useRef(false)
   const toolRef = useRef<Tool>(tool)
   toolRef.current = tool
   const downRef = useRef<{ x: number; y: number; world: Point } | null>(null)
@@ -167,6 +168,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.code === 'Space') space.current = event.type === 'keydown'
+      if (event.key === 'Alt') altRef.current = event.type === 'keydown'
       if (event.code === 'Escape') setDraft(null)
     }
     window.addEventListener('keydown', onKey)
@@ -225,9 +227,11 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
   }
 
   const snap = (point: Point, origin?: Point): Point => {
+    if (altRef.current || !useEditor.getState().snapEnabled) return point
     const tolerance = 14 / viewRef.current.scale
     const endpoint = nearestEndpoint(point, project.walls, tolerance)
     if (endpoint) return endpoint
+    if (toolRef.current === 'scale') return point
     const grid = approximate ? 20 : Math.max(4, 0.5 / metersPerPixel)
     const gridded = snapGrid(point, grid)
     return origin ? snapAngle(origin, gridded, 11) : gridded
@@ -443,6 +447,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
       const simplified = straightenFreehand(draft.points, 12 / viewRef.current.scale)
       const tolerance = 14 / viewRef.current.scale
       const snapped = simplified.map((point, index) => {
+        if (altRef.current || !useEditor.getState().snapEnabled) return point
         const endpoint = nearestEndpoint(point, project.walls, tolerance)
         if (endpoint) return endpoint
         if (index === 0 || index === simplified.length - 1) return snapGrid(point, approximate ? 20 : Math.max(4, 0.5 / metersPerPixel))
@@ -472,18 +477,27 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
       return
     }
     if (draft && (draft.kind === 'wall' || draft.kind === 'scale')) {
-      if (dist(draft.a, world) < 4) return
-      if (draft.kind === 'wall') commitWall([draft.a.x, draft.a.y, world.x, world.y])
-      else askScale(draft.a, world)
-      setDraft(null)
+      if (dist(draft.a, world) < 4) {
+        if (draft.kind === 'wall') setDraft(null)
+        return
+      }
+      if (draft.kind === 'wall') {
+        commitWall([draft.a.x, draft.a.y, world.x, world.y])
+        setDraft({ kind: 'wall', a: world, b: world })
+      } else {
+        askScale(draft.a, world)
+        setDraft(null)
+      }
       return
     }
     if ((currentTool === 'wall' || currentTool === 'scale') && moved && down) {
       const start = snap(down.world)
       const end = snap(world, start)
       if (dist(start, end) < 4) return
-      if (currentTool === 'wall') commitWall([start.x, start.y, end.x, end.y])
-      else askScale(start, end)
+      if (currentTool === 'wall') {
+        commitWall([start.x, start.y, end.x, end.y])
+        setDraft({ kind: 'wall', a: end, b: end })
+      } else askScale(start, end)
       return
     }
     if (currentTool === 'wall' || currentTool === 'scale') setDraft({ kind: currentTool, a: world, b: world })
@@ -639,11 +653,12 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
             )
           })}
           <Group x={16} y={16} listening={false}>
-            <Rect width={168} height={26} fill="rgba(255,250,242,0.9)" cornerRadius={6} />
-            {['#c4302a', '#e09a2b', '#9bb83a', '#2fbe9a'].map((color, index) => (
-              <Rect key={color} x={8 + index * 22} y={8} width={20} height={10} fill={color} />
+            <Rect width={210} height={36} fill="rgba(255,250,242,0.92)" cornerRadius={6} />
+            {['#c4302a', '#e07a32', '#e0b030', '#9bb83a', '#2fbe9a'].map((color, index) => (
+              <Rect key={color} x={8 + index * 28} y={6} width={26} height={10} fill={color} />
             ))}
-            <Text x={100} y={7} text={band === '5' ? t('band.5') : t('band.24')} fontSize={12} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            <Text x={8} y={18} text="−82   −75   −67   −55 дБм" fontSize={10} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            <Text x={148} y={4} text={band === '5' ? t('band.5') : t('band.24')} fontSize={11} fontFamily="Manrope, sans-serif" fill="#2c261f" />
           </Group>
         </Layer>
       </Stage>
