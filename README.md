@@ -50,6 +50,8 @@ npx wrangler pages deploy dist --project-name wifiplan
 
 `wrangler.toml` задаёт `pages_build_output_dir = "dist"`. Первый деплой создаст проект Pages с именем `wifiplan`, если его ещё нет (нужен вход: `npx wrangler login`).
 
+В `dist` попадают `public/_headers` и `public/_redirects`. Заголовок `Content-Security-Policy: frame-ancestors *` разрешает вставку в iframe; `X-Frame-Options` не задаётся. `/* /index.html 200` отдаёт приложение для неизвестных путей. Файлы и Pages Functions имеют приоритет над этим правилом.
+
 ### Короткие ссылки
 
 По умолчанию выключены: `SHORT_LINKS_ENABLED = "false"`. Функции лежат в `functions/` и на выключенном флаге отвечают `501`.

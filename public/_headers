@@ -1,0 +1,4 @@
+# Iframe embedding is allowed. X-Frame-Options is intentionally omitted:
+# DENY or SAMEORIGIN would block embeds. frame-ancestors overrides it anyway.
+/*
+  Content-Security-Policy: frame-ancestors *
