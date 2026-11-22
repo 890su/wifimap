@@ -101,6 +101,7 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
         widthPx: bounds.widthPx,
         heightPx: bounds.heightPx,
         cellM: 0.25,
+        noiseExtraDb: currentProject.propagation.noiseExtraDb ?? 3,
       }
       const apply = (grid: HeatmapGrid) => {
         if (seq.current !== id) return

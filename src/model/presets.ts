@@ -53,7 +53,7 @@ export const CLIENT_PRESETS: Record<
   Pick<ClientDevice, 'wifiGen' | 'mimo' | 'supports5' | 'txPowerDbm' | 'gainDbi'>
 > = {
   phone: { wifiGen: 'wifi6', mimo: 2, supports5: true, txPowerDbm: 15, gainDbi: -2 },
-  laptop: { wifiGen: 'wifi6', mimo: 2, supports5: true, txPowerDbm: 17, gainDbi: 0 },
+  laptop: { wifiGen: 'wifi6', mimo: 2, supports5: true, txPowerDbm: 18, gainDbi: 0 },
   tv: { wifiGen: 'wifi5', mimo: 2, supports5: true, txPowerDbm: 16, gainDbi: 0 },
   console: { wifiGen: 'wifi6', mimo: 2, supports5: true, txPowerDbm: 16, gainDbi: 0 },
   pc: { wifiGen: 'wifi5', mimo: 1, supports5: true, txPowerDbm: 17, gainDbi: 0 },

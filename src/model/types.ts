@@ -92,7 +92,7 @@ export interface Point {
   y: number
 }
 
-export type WarningCode = 'no-ap' | 'no-link' | 'weak-signal' | 'weak-uplink' | 'approx-scale' | 'wireless-backhaul' | 'no-parent' | 'eirp'
+export type WarningCode = 'no-ap' | 'no-link' | 'weak-signal' | 'weak-uplink' | 'uplink-limit' | 'approx-scale' | 'wireless-backhaul' | 'no-parent' | 'eirp'
 
 export interface ClientEstimate {
   clientId: string
@@ -124,6 +124,8 @@ export interface HeatmapRequest {
   widthPx: number
   heightPx: number
   cellM: number
+  /** Neighbour-noise offset. The map uses the same value as the client card. */
+  noiseExtraDb?: number
 }
 
 export interface HeatmapGrid {

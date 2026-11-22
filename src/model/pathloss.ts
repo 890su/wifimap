@@ -16,6 +16,23 @@ export const NOISE_20MHZ_DBM = -95
 export const WALL_LOSS_CAP_DB = 60
 
 export const NO_LINK_RSSI_DBM = -82
+export const NO_LINK_SNR_DB = 5
+/** Uplink may narrow to this width. Its noise is the 20 MHz floor, without the neighbour offset. */
+export const UPLINK_FALLBACK_MHZ = 20
+export const UPLINK_FALLBACK_NOISE_DBM = -95
+/** An access point hears better than a handset, on top of receive-chain gain. */
+export const AP_RX_SENSITIVITY_DB = 2
+/** Heatmap reference client: a phone, the stricter of the two common devices. */
+export const HEATMAP_CLIENT_TX_DBM = 15
+export const HEATMAP_CLIENT_GAIN_DBI = -2
+
+export function apReceiveGainDb(mimo: number): number {
+  return 10 * Math.log10(Math.max(1, mimo)) + AP_RX_SENSITIVITY_DB
+}
+
+export function directionFails(rssiDbm: number, snrDb: number): boolean {
+  return rssiDbm < NO_LINK_RSSI_DBM || snrDb < NO_LINK_SNR_DB
+}
 
 /** Apartment neighbour density used when a project does not say otherwise. */
 export const DEFAULT_NOISE_EXTRA_DB = 3
@@ -169,6 +186,101 @@ export function linkBudget(args: {
   }
 }
 
+export interface BidirectionalLink {
+  down: LinkBudget
+  up: LinkBudget
+  uplinkWidthMHz: number
+  noLink: boolean
+  /** Downlink noise plus the worse of the two SNRs, so it sits on the same legend as downlink RSSI. */
+  effectiveRssiDbm: number
+  worseSnrDb: number
+  /** The return path is what fails, or it is the poorer of the two live directions. */
+  uplinkLimits: boolean
+}
+
+/**
+ * Link at one point. Path loss is reciprocal. The uplink may narrow to 20 MHz
+ * (noise −95 dBm) and includes access-point receive-chain gain plus RX sensitivity.
+ * Either direction below −82 dBm or SNR 5 is no link.
+ */
+export function bidirectionalLink(args: {
+  apX: number
+  apY: number
+  clientX: number
+  clientY: number
+  apTxDbm: number
+  apGainDbi: number
+  apMimo: number
+  channelWidthMHz: number
+  clientTxDbm: number
+  clientGainDbi: number
+  segs: Segment[]
+  metersPerPixel: number
+  freqMHz: number
+  exponent: number
+  noiseExtraDb: number
+}): BidirectionalLink {
+  const geometry = {
+    x1: args.apX,
+    y1: args.apY,
+    x2: args.clientX,
+    y2: args.clientY,
+    segs: args.segs,
+    metersPerPixel: args.metersPerPixel,
+    freqMHz: args.freqMHz,
+    exponent: args.exponent,
+  }
+  const downNoise = noiseFloorDbm(args.channelWidthMHz, args.noiseExtraDb)
+  const down = linkBudget({
+    ...geometry,
+    txPowerDbm: args.apTxDbm,
+    gainDbi: args.apGainDbi,
+    rxGainDbi: args.clientGainDbi,
+    noiseDbm: downNoise,
+  })
+  const rxAtAp = args.apGainDbi + apReceiveGainDb(args.apMimo)
+  const widths = [20, 40, 80, 160, 320].filter((width) => width <= args.channelWidthMHz + 1e-6)
+  let chosen: LinkBudget | null = null
+  let chosenWidth = UPLINK_FALLBACK_MHZ
+  for (const width of widths) {
+    const noise = width <= UPLINK_FALLBACK_MHZ ? UPLINK_FALLBACK_NOISE_DBM : noiseFloorDbm(width, args.noiseExtraDb)
+    const up = linkBudget({
+      ...geometry,
+      txPowerDbm: args.clientTxDbm,
+      gainDbi: args.clientGainDbi,
+      rxGainDbi: rxAtAp,
+      noiseDbm: noise,
+    })
+    if (directionFails(up.rssiDbm, up.snrDb)) continue
+    if (!chosen || width > chosenWidth) {
+      chosen = up
+      chosenWidth = width
+    }
+  }
+  const up = chosen ?? linkBudget({
+    ...geometry,
+    txPowerDbm: args.clientTxDbm,
+    gainDbi: args.clientGainDbi,
+    rxGainDbi: rxAtAp,
+    noiseDbm: UPLINK_FALLBACK_NOISE_DBM,
+  })
+  const downFails = directionFails(down.rssiDbm, down.snrDb)
+  const upFails = directionFails(up.rssiDbm, up.snrDb)
+  const noLink = downFails || upFails
+  const worseSnrDb = Math.min(down.snrDb, up.snrDb)
+  let effectiveRssiDbm = downNoise + worseSnrDb
+  if (noLink) effectiveRssiDbm = Math.min(effectiveRssiDbm, NO_LINK_RSSI_DBM - 0.5)
+  return {
+    down,
+    up,
+    uplinkWidthMHz: chosen ? chosenWidth : UPLINK_FALLBACK_MHZ,
+    noLink,
+    effectiveRssiDbm,
+    worseSnrDb,
+    uplinkLimits: !downFails && (upFails || up.snrDb + 0.05 < down.snrDb || (chosen !== null && chosenWidth < args.channelWidthMHz)),
+  }
+}
+
 export function computeRssiGrid(req: HeatmapRequest): HeatmapGrid {
   const mpp = Math.max(req.metersPerPixel, 1e-6)
   let cellPx = Math.max(req.cellM, 0.05) / mpp
@@ -185,15 +297,18 @@ export function computeRssiGrid(req: HeatmapRequest): HeatmapGrid {
   const exponent = resolveExponent(req.exponent)
   const segs = buildSegments(req.walls, req.band)
   const freq = BAND_FREQ_MHZ[req.band]
+  const noiseExtraDb = req.noiseExtraDb ?? DEFAULT_NOISE_EXTRA_DB
   const rssi = new Float32Array(cols * rows)
   rssi.fill(-120)
 
   const radios = req.aps
     .map((ap) => {
       const radio = radioFor(ap, req.band)
-      return radio.enabled ? { x: ap.x, y: ap.y, tx: radio.txPowerDbm, gain: radio.gainDbi } : null
+      return radio.enabled
+        ? { x: ap.x, y: ap.y, tx: radio.txPowerDbm, gain: radio.gainDbi, mimo: ap.mimo, width: radio.channelWidthMHz }
+        : null
     })
-    .filter((r): r is { x: number; y: number; tx: number; gain: number } => r !== null)
+    .filter((r): r is { x: number; y: number; tx: number; gain: number; mimo: number; width: number } => r !== null)
 
   if (radios.length === 0) {
     return { width: cols, height: rows, cellPx, originX: req.originX, originY: req.originY, rssi }
@@ -205,20 +320,24 @@ export function computeRssiGrid(req: HeatmapRequest): HeatmapGrid {
       const px = req.originX + (x + 0.5) * cellPx
       let best = -200
       for (const ap of radios) {
-        const budget = linkBudget({
-          x1: ap.x,
-          y1: ap.y,
-          x2: px,
-          y2: py,
-          txPowerDbm: ap.tx,
-          gainDbi: ap.gain,
+        const link = bidirectionalLink({
+          apX: ap.x,
+          apY: ap.y,
+          clientX: px,
+          clientY: py,
+          apTxDbm: ap.tx,
+          apGainDbi: ap.gain,
+          apMimo: ap.mimo,
+          channelWidthMHz: ap.width,
+          clientTxDbm: HEATMAP_CLIENT_TX_DBM,
+          clientGainDbi: HEATMAP_CLIENT_GAIN_DBI,
           segs,
           metersPerPixel: mpp,
           freqMHz: freq,
           exponent,
-          noiseDbm: noiseFloorDbm(20, 0),
+          noiseExtraDb,
         })
-        if (budget.rssiDbm > best) best = budget.rssiDbm
+        if (link.effectiveRssiDbm > best) best = link.effectiveRssiDbm
       }
       rssi[y * cols + x] = best
     }

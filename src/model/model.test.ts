@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AP_PRESETS, CLIENT_PRESETS } from './presets'
 import {
+  bidirectionalLink,
   coverageFraction,
   effectiveScale,
   fsplAt1m,
@@ -433,22 +434,66 @@ describe('specification reference values', () => {
     expect(near!.pingMs!).toBeLessThanOrEqual(far!.pingMs!)
   })
 
-  it('keeps a normal downlink when the uplink is weak', () => {
+  it('drops the link when the return path fails, even if the downlink is still fine', () => {
     const p = project({
       propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
       isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
-      aps: [ap({ id: 'a', x: 0, y: 0, band24: { enabled: false, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: 80 } })],
+      aps: [ap({ id: 'a', x: 0, y: 0, mimo: 2, band24: { enabled: false, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: 80 } })],
       clients: [client({ id: 'c', x: 3000, y: 0, txPowerDbm: -20, gainDbi: -2, mimo: 1 })],
     })
     const est = estimateClients(p, 0.02, false)[0]
-    expect(est.rssiDbm ?? -200).toBeGreaterThanOrEqual(-82)
-    expect(est.downMbps).toBeGreaterThan(0)
+    expect(est.downMbps).toBe(0)
     expect(est.upMbps).toBe(0)
-    expect(est.warnings).toContain('weak-uplink')
-    expect(est.warnings).not.toContain('no-link')
-    expect(est.scores.surfing).toBeGreaterThan(0)
-    expect(est.scores.broadcast).toBe(0)
-    expect(est.scores.cloud).toBeGreaterThanOrEqual(0)
+    expect(est.warnings).toContain('no-link')
+    expect(est.warnings).toContain('uplink-limit')
+    expect(est.scores.surfing).toBe(0)
+  })
+
+  it('marks a phone behind two brick walls as no link while a clear path stays up', () => {
+    const mpp = 0.02
+    const distancePx = 7 / mpp
+    const phone = client({
+      id: 'phone',
+      x: distancePx,
+      y: 0,
+      preset: 'phone',
+      wifiGen: 'wifi6',
+      mimo: 2,
+      supports5: true,
+      txPowerDbm: 15,
+      gainDbi: -2,
+    })
+    const apRadio = ap({
+      id: 'a',
+      x: 0,
+      y: 0,
+      mimo: 2,
+      band24: { enabled: false, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 },
+      band5: { enabled: true, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: 80 },
+    })
+    const clear = estimateClients(project({
+      propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+      isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
+      aps: [apRadio],
+      clients: [{ ...phone, x: 2 / mpp }],
+    }), mpp, false)[0]
+    expect(clear.downMbps).toBeGreaterThan(0)
+    expect(clear.upMbps).toBeGreaterThan(0)
+    expect(clear.warnings).not.toContain('no-link')
+
+    const blocked = estimateClients(project({
+      propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+      isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
+      walls: [wall('b1', [80, -40, 80, 40], 'brick'), wall('b2', [160, -40, 160, 40], 'brick')],
+      aps: [apRadio],
+      clients: [phone],
+    }), mpp, false)[0]
+    expect(blocked.wallLossDb).toBe(30)
+    expect(blocked.downMbps).toBe(0)
+    expect(blocked.upMbps).toBe(0)
+    expect(blocked.warnings).toContain('no-link')
+    expect(blocked.warnings).toContain('uplink-limit')
+    expect(blocked.scores.cloud).toBe(0)
   })
 
   it('does not call a phone at −74 dBm or a laptop at −78 dBm a dead link', () => {
@@ -489,8 +534,8 @@ describe('specification reference values', () => {
       expect(est.downMbps).toBeGreaterThan(0)
       expect(est.warnings).not.toContain('no-link')
     }
-    expect(phone80.rssiDbm).toBeCloseTo(-74, 0)
-    expect(laptop20.rssiDbm).toBeCloseTo(-78, 0)
+    expect(phone80.rssiDbm ?? -200).toBeGreaterThan(-82)
+    expect(laptop20.rssiDbm ?? -200).toBeGreaterThan(-82)
     const dead = place('phone', -84, 80)
     expect(dead.downMbps).toBe(0)
     expect(dead.warnings).toContain('no-link')
@@ -518,19 +563,23 @@ describe('specification reference values', () => {
     const cell = Math.floor(grid.height / 2) * grid.width + Math.floor(grid.width / 2)
     const px = grid.originX + (Math.floor(grid.width / 2) + 0.5) * grid.cellPx
     const py = grid.originY + (Math.floor(grid.height / 2) + 0.5) * grid.cellPx
-    const point = linkBudget({
-      x1: 200,
-      y1: -80,
-      x2: px,
-      y2: py,
-      txPowerDbm: 23,
-      gainDbi: 0,
+    const point = bidirectionalLink({
+      apX: 200,
+      apY: -80,
+      clientX: px,
+      clientY: py,
+      apTxDbm: 23,
+      apGainDbi: 0,
+      apMimo: 2,
+      channelWidthMHz: 80,
+      clientTxDbm: 15,
+      clientGainDbi: -2,
       segs,
       metersPerPixel: mpp,
       freqMHz: 5200,
       exponent: 2.8,
-      noiseDbm: -86,
+      noiseExtraDb: 3,
     })
-    expect(grid.rssi[cell]).toBeCloseTo(point.rssiDbm, 5)
+    expect(grid.rssi[cell]).toBeCloseTo(point.effectiveRssiDbm, 5)
   })
 })

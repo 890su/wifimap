@@ -1,4 +1,4 @@
-import { buildSegments, linkBudget, noiseFloorDbm, NO_LINK_RSSI_DBM, radioFor, resolveExponent } from './pathloss'
+import { bidirectionalLink, buildSegments, NO_LINK_RSSI_DBM, radioFor, resolveExponent } from './pathloss'
 import type { Segment } from './geometry'
 import { CLIENT_PRESETS } from './presets'
 import type {
@@ -200,7 +200,7 @@ interface AirLink {
   snr: number
   distanceM: number
   wallLossDb: number
-  uplinkWeak: boolean
+  uplinkLimits: boolean
 }
 
 function airLink(
@@ -213,71 +213,37 @@ function airLink(
   noiseExtraDb: number,
 ): AirLink {
   const radio = radioFor(ap, band)
-  const common = {
-    x1: ap.x,
-    y1: ap.y,
-    x2: client.x,
-    y2: client.y,
+  const both = bidirectionalLink({
+    apX: ap.x,
+    apY: ap.y,
+    clientX: client.x,
+    clientY: client.y,
+    apTxDbm: radio.txPowerDbm,
+    apGainDbi: radio.gainDbi,
+    apMimo: ap.mimo,
+    channelWidthMHz: radio.channelWidthMHz,
+    clientTxDbm: client.tx,
+    clientGainDbi: client.gain,
     segs,
     metersPerPixel,
     freqMHz: band === '2.4' ? 2437 : 5200,
     exponent,
-    noiseDbm: noiseFloorDbm(radio.channelWidthMHz, noiseExtraDb),
-  }
-  const down = linkBudget({ ...common, txPowerDbm: radio.txPowerDbm, gainDbi: radio.gainDbi, rxGainDbi: client.gain })
+    noiseExtraDb,
+  })
   const gen = olderGen(ap.wifiGen, client.wifiGen)
   const streams = Math.max(1, Math.min(ap.mimo, client.mimo))
-  const downDead = down.rssiDbm < NO_LINK_RSSI_DBM || down.snrDb < 5
-  const phy = downDead ? 0 : phyMbpsFromSnr(down.snrDb, gen, radio.channelWidthMHz, streams)
-  const uplink = uplinkPhy(ap, client, band, segs, metersPerPixel, exponent, noiseExtraDb, gen, streams)
+  const phy = both.noLink ? 0 : phyMbpsFromSnr(both.down.snrDb, gen, radio.channelWidthMHz, streams)
+  const upPhy = both.noLink ? 0 : phyMbpsFromSnr(both.up.snrDb, gen, both.uplinkWidthMHz, streams)
   return {
     mbps: phy * MAC_ETA[gen],
-    upMbps: downDead ? 0 : uplink.phy * MAC_ETA[gen],
+    upMbps: upPhy * MAC_ETA[gen],
     phy,
-    rssi: down.rssiDbm,
-    snr: down.snrDb,
-    distanceM: down.distanceM,
-    wallLossDb: down.wallLossDb,
-    uplinkWeak: !downDead && (uplink.phy <= 0 || uplink.widthMHz < radio.channelWidthMHz),
+    rssi: both.effectiveRssiDbm,
+    snr: both.worseSnrDb,
+    distanceM: both.down.distanceM,
+    wallLossDb: both.down.wallLossDb,
+    uplinkLimits: both.uplinkLimits,
   }
-}
-
-/** Widest-first channel, then 40 and 20 MHz resource units. AP receive chains add MRC gain. */
-function uplinkPhy(
-  ap: AccessPoint,
-  client: { x: number; y: number; tx: number; gain: number },
-  band: BandId,
-  segs: Segment[],
-  metersPerPixel: number,
-  exponent: number,
-  noiseExtraDb: number,
-  gen: WifiGen,
-  streams: number,
-): { phy: number; widthMHz: number } {
-  const radio = radioFor(ap, band)
-  const mrcDb = 10 * Math.log10(Math.max(1, ap.mimo))
-  const widths = [20, 40, 80, 160, 320].filter((width) => width <= radio.channelWidthMHz + 1e-6)
-  let best = { phy: 0, widthMHz: widths[0] ?? 20 }
-  for (const width of widths) {
-    const up = linkBudget({
-      x1: ap.x,
-      y1: ap.y,
-      x2: client.x,
-      y2: client.y,
-      segs,
-      metersPerPixel,
-      freqMHz: band === '2.4' ? 2437 : 5200,
-      exponent,
-      noiseDbm: noiseFloorDbm(width, noiseExtraDb),
-      txPowerDbm: client.tx,
-      gainDbi: client.gain,
-      rxGainDbi: radio.gainDbi + mrcDb,
-    })
-    if (up.snrDb < 5) continue
-    const phy = phyMbpsFromSnr(up.snrDb, gen, width, streams)
-    if (phy > best.phy) best = { phy, widthMHz: width }
-  }
-  return best
 }
 
 interface Uplink {
@@ -419,6 +385,7 @@ export function estimateClients(
         estimate.snrDb = choice.link.snr
         estimate.distanceM = choice.link.distanceM
         estimate.wallLossDb = choice.link.wallLossDb
+        if (choice.link.uplinkLimits) estimate.warnings.push('uplink-limit')
       }
       return estimate
     }
@@ -439,7 +406,7 @@ export function estimateClients(
     const warnings: ClientEstimate['warnings'] = []
     if (approximateScale) warnings.push('approx-scale')
     if (choice.link.rssi < -75) warnings.push('weak-signal')
-    if (choice.link.uplinkWeak) warnings.push('weak-uplink')
+    if (choice.link.uplinkLimits) warnings.push('uplink-limit')
     if (choice.uplink.wireless) warnings.push('wireless-backhaul')
     if (!choice.uplink.hasParent) warnings.push('no-parent')
     const radio = radioFor(choice.ap, choice.band)

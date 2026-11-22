@@ -167,6 +167,7 @@ export const en: Record<MessageKey, string> = {
   'warn.no-ap': 'No access point',
   'warn.weak-signal': 'Weak signal, retries likely',
   'warn.weak-uplink': 'Weak uplink: the return path is narrower than the download',
+  'warn.uplink-limit': 'Limited by the return path (device → router)',
   'warn.approx-scale': 'Scale is not measured — figures are approximate',
   'warn.wireless-backhaul': 'Wireless backhaul shares capacity',
   'warn.no-parent': 'No wired AP nearby for backhaul',
