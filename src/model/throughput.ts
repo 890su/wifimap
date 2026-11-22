@@ -136,8 +136,10 @@ export function activityLevel(
   metrics: { downMbps: number; upMbps: number; pingMs: number; jitterMs: number; lossPct?: number },
   activity: ActivityId,
 ): number {
-  if (metrics.downMbps <= 0 || metrics.upMbps <= 0) return 0
+  if (metrics.downMbps <= 0) return 0
   const loss = metrics.lossPct ?? 0
+  const uploadBound = metrics.upMbps <= 0 && (activity === 'calls' || activity === 'broadcast' || activity === 'gaming' || activity === 'cloud')
+  if (uploadBound) return 0
   if (activity === 'surfing') {
     return Math.min(levelAt(metrics.downMbps, [[2, 2], [5, 3], [25, 4]]), lowerLevel(metrics.pingMs, 50, 100, 200))
   }
@@ -198,6 +200,7 @@ interface AirLink {
   snr: number
   distanceM: number
   wallLossDb: number
+  uplinkWeak: boolean
 }
 
 function airLink(
@@ -222,23 +225,59 @@ function airLink(
     noiseDbm: noiseFloorDbm(radio.channelWidthMHz, noiseExtraDb),
   }
   const down = linkBudget({ ...common, txPowerDbm: radio.txPowerDbm, gainDbi: radio.gainDbi, rxGainDbi: client.gain })
-  const up = linkBudget({ ...common, txPowerDbm: client.tx, gainDbi: client.gain, rxGainDbi: radio.gainDbi })
   const gen = olderGen(ap.wifiGen, client.wifiGen)
   const streams = Math.max(1, Math.min(ap.mimo, client.mimo))
   const downDead = down.rssiDbm < NO_LINK_RSSI_DBM || down.snrDb < 5
-  const upDead = up.rssiDbm < NO_LINK_RSSI_DBM || up.snrDb < 5
-  const dead = downDead || upDead
-  const phy = dead ? 0 : phyMbpsFromSnr(down.snrDb, gen, radio.channelWidthMHz, streams)
-  const upPhy = dead ? 0 : phyMbpsFromSnr(up.snrDb, gen, radio.channelWidthMHz, streams)
+  const phy = downDead ? 0 : phyMbpsFromSnr(down.snrDb, gen, radio.channelWidthMHz, streams)
+  const uplink = uplinkPhy(ap, client, band, segs, metersPerPixel, exponent, noiseExtraDb, gen, streams)
   return {
     mbps: phy * MAC_ETA[gen],
-    upMbps: upPhy * MAC_ETA[gen],
+    upMbps: downDead ? 0 : uplink.phy * MAC_ETA[gen],
     phy,
     rssi: down.rssiDbm,
     snr: down.snrDb,
     distanceM: down.distanceM,
     wallLossDb: down.wallLossDb,
+    uplinkWeak: !downDead && (uplink.phy <= 0 || uplink.widthMHz < radio.channelWidthMHz),
   }
+}
+
+/** Widest-first channel, then 40 and 20 MHz resource units. AP receive chains add MRC gain. */
+function uplinkPhy(
+  ap: AccessPoint,
+  client: { x: number; y: number; tx: number; gain: number },
+  band: BandId,
+  segs: Segment[],
+  metersPerPixel: number,
+  exponent: number,
+  noiseExtraDb: number,
+  gen: WifiGen,
+  streams: number,
+): { phy: number; widthMHz: number } {
+  const radio = radioFor(ap, band)
+  const mrcDb = 10 * Math.log10(Math.max(1, ap.mimo))
+  const widths = [20, 40, 80, 160, 320].filter((width) => width <= radio.channelWidthMHz + 1e-6)
+  let best = { phy: 0, widthMHz: widths[0] ?? 20 }
+  for (const width of widths) {
+    const up = linkBudget({
+      x1: ap.x,
+      y1: ap.y,
+      x2: client.x,
+      y2: client.y,
+      segs,
+      metersPerPixel,
+      freqMHz: band === '2.4' ? 2437 : 5200,
+      exponent,
+      noiseDbm: noiseFloorDbm(width, noiseExtraDb),
+      txPowerDbm: client.tx,
+      gainDbi: client.gain,
+      rxGainDbi: radio.gainDbi + mrcDb,
+    })
+    if (up.snrDb < 5) continue
+    const phy = phyMbpsFromSnr(up.snrDb, gen, width, streams)
+    if (phy > best.phy) best = { phy, widthMHz: width }
+  }
+  return best
 }
 
 interface Uplink {
@@ -400,6 +439,7 @@ export function estimateClients(
     const warnings: ClientEstimate['warnings'] = []
     if (approximateScale) warnings.push('approx-scale')
     if (choice.link.rssi < -75) warnings.push('weak-signal')
+    if (choice.link.uplinkWeak) warnings.push('weak-uplink')
     if (choice.uplink.wireless) warnings.push('wireless-backhaul')
     if (!choice.uplink.hasParent) warnings.push('no-parent')
     const radio = radioFor(choice.ap, choice.band)

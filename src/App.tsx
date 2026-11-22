@@ -114,7 +114,9 @@ export function App({ embed }: { embed: boolean }) {
       const side = document.querySelector('.side-body')?.scrollHeight ?? 0
       const peek = document.querySelector('.peek')?.getBoundingClientRect().height ?? 0
       const stage = 520
-      const height = Math.ceil(mobile ? header + stage + side + peek + tools : header + Math.max(stage, side))
+      // On a phone the inspector is a collapsed sheet. Its full scroll height
+      // must not stretch the iframe and push the tools off the first screen.
+      const height = Math.ceil(mobile ? header + stage + Math.max(peek, 48) + tools : header + Math.max(stage, side))
       if (height === last) return
       last = height
       window.parent.postMessage({ type: 'wifiplan:height', height }, '*')

@@ -50,7 +50,7 @@ export function ProjectMenu({
       {open && (
         <div className="menu-pop" role="menu">
           <button type="button" role="menuitem" onClick={() => run(() => newProject(t('default.name')))}>{t('project.new')}</button>
-          <button type="button" role="menuitem" data-testid="open-sample" onClick={() => run(() => openSampleApartment(t('project.sample')))}>
+          <button type="button" role="menuitem" data-testid="open-sample" onClick={() => run(() => openSampleApartment(t('project.sample'), t('project.sampleConfirm')))}>
             {t('project.sample')}
           </button>
           <button type="button" onClick={() => run(onUpload)}>{t('project.upload')}</button>

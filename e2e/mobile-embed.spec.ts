@@ -63,7 +63,8 @@ test('embed frame stays inside a phone iframe and reports its height', async ({ 
   await expect(child!.locator('[data-testid="embed-fullscreen"]')).toBeVisible()
   await page.waitForFunction(() => {
     const frame = document.querySelector('iframe')
-    return Boolean(frame && Number.parseInt(frame.style.height, 10) > 640)
+    const height = frame ? Number.parseInt(frame.style.height, 10) : 0
+    return height >= 600 && height < 1100
   })
   const script = await page.request.get('/embed.js')
   expect(script.ok()).toBeTruthy()

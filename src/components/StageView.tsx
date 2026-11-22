@@ -651,14 +651,20 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
               </Group>
             )
           })}
-          <Group x={16} y={16} listening={false}>
-            <Rect width={300} height={36} fill="rgba(255,250,242,0.92)" cornerRadius={6} />
-            <Rect x={8} y={5} width={18} height={10} fill="#731220" />
+          <Group
+            x={(12 - view.x) / view.scale}
+            y={(12 - view.y) / view.scale}
+            scaleX={1 / view.scale}
+            scaleY={1 / view.scale}
+            listening={false}
+          >
+            <Rect width={360} height={48} fill="rgba(255,250,242,0.94)" cornerRadius={8} />
+            <Rect x={10} y={8} width={26} height={16} fill="#731220" cornerRadius={2} />
             {['#c4302a', '#e07a32', '#e0b030', '#9bb83a', '#2fbe9a'].map((color, index) => (
-              <Rect key={color} x={34 + index * 28} y={5} width={24} height={10} fill={color} />
+              <Rect key={color} x={44 + index * 34} y={8} width={30} height={16} fill={color} cornerRadius={2} />
             ))}
-            <Text x={8} y={18} text={t('zone.dead')} fontSize={11} fontFamily="Manrope, sans-serif" fill="#2c261f" />
-            <Text x={236} y={4} text={band === '5' ? t('band.5') : t('band.24')} fontSize={11} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            <Text x={10} y={28} text={t('zone.dead')} fontSize={16} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            <Text x={268} y={6} text={band === '5' ? t('band.5') : t('band.24')} fontSize={15} fontFamily="Manrope, sans-serif" fill="#2c261f" />
           </Group>
         </Layer>
       </Stage>
@@ -672,7 +678,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
             variant="primary"
             data-testid="open-sample"
             onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => openSampleApartment(t('project.sample'))}
+            onClick={() => openSampleApartment(t('project.sample'), t('project.sampleConfirm'))}
           >
             {t('empty.sample')}
           </Button>
@@ -692,6 +698,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
         <span>
           {t('status.clients')} <strong data-testid="status-clients">{project.clients.length}</strong>
         </span>
+        <span data-testid="build-version">{__APP_VERSION__}</span>
       </div>
       <div className="zoom-controls" data-overlay>
         <button type="button" aria-label={t('tool.zoomIn')} onClick={() => zoomAt(1.15)}>+</button>

@@ -92,7 +92,7 @@ export interface Point {
   y: number
 }
 
-export type WarningCode = 'no-ap' | 'no-link' | 'weak-signal' | 'approx-scale' | 'wireless-backhaul' | 'no-parent' | 'eirp'
+export type WarningCode = 'no-ap' | 'no-link' | 'weak-signal' | 'weak-uplink' | 'approx-scale' | 'wireless-backhaul' | 'no-parent' | 'eirp'
 
 export interface ClientEstimate {
   clientId: string

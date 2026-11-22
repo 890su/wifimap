@@ -72,7 +72,7 @@ export function Header({
           type="button"
           className="btn btn-ghost desktop-only"
           data-testid="open-sample"
-          onClick={() => openSampleApartment(t('project.sample'))}
+          onClick={() => openSampleApartment(t('project.sample'), t('project.sampleConfirm'))}
         >
           {t('project.sample')}
         </button>

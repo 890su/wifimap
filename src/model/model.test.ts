@@ -408,7 +408,9 @@ describe('specification reference values', () => {
     expect(activityLevel({ downMbps: 20, upMbps: 12, pingMs: 20, jitterMs: 2 }, 'broadcast')).toBe(4)
     expect(scoreActivity({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2 }, 'gaming')).toBe(100)
     expect(scoreActivity({ downMbps: 80, upMbps: 40, pingMs: 130, jitterMs: 20 }, 'gaming')).toBe(0)
-    expect(activityLevel({ downMbps: 100, upMbps: 0, pingMs: 10, jitterMs: 1 }, 'surfing')).toBe(0)
+    expect(activityLevel({ downMbps: 100, upMbps: 0, pingMs: 10, jitterMs: 1 }, 'surfing')).toBeGreaterThan(0)
+    expect(activityLevel({ downMbps: 100, upMbps: 0, pingMs: 10, jitterMs: 1 }, 'broadcast')).toBe(0)
+    expect(activityLevel({ downMbps: 100, upMbps: 0, pingMs: 10, jitterMs: 1 }, 'cloud')).toBe(0)
     expect(activityLevel({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2, lossPct: 4 }, 'cloud')).toBe(0)
     expect(activityLevel({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2, lossPct: 4 }, 'gaming')).toBe(0)
   })
@@ -431,17 +433,104 @@ describe('specification reference values', () => {
     expect(near!.pingMs!).toBeLessThanOrEqual(far!.pingMs!)
   })
 
-  it('treats a dead uplink as no connection', () => {
+  it('keeps a normal downlink when the uplink is weak', () => {
     const p = project({
       propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
       isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
       aps: [ap({ id: 'a', x: 0, y: 0, band24: { enabled: false, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: 80 } })],
-      clients: [client({ id: 'c', x: 3000, y: 0, txPowerDbm: 15, gainDbi: -2 })],
+      clients: [client({ id: 'c', x: 3000, y: 0, txPowerDbm: -20, gainDbi: -2, mimo: 1 })],
     })
     const est = estimateClients(p, 0.02, false)[0]
-    expect(est.downMbps).toBe(0)
+    expect(est.rssiDbm ?? -200).toBeGreaterThanOrEqual(-82)
+    expect(est.downMbps).toBeGreaterThan(0)
     expect(est.upMbps).toBe(0)
-    expect(est.scores.surfing).toBe(0)
-    expect(est.warnings).toContain('no-link')
+    expect(est.warnings).toContain('weak-uplink')
+    expect(est.warnings).not.toContain('no-link')
+    expect(est.scores.surfing).toBeGreaterThan(0)
+    expect(est.scores.broadcast).toBe(0)
+    expect(est.scores.cloud).toBeGreaterThanOrEqual(0)
+  })
+
+  it('does not call a phone at −74 dBm or a laptop at −78 dBm a dead link', () => {
+    const place = (kind: 'phone' | 'laptop', rssi: number, width: number) => {
+      const gain = kind === 'phone' ? -2 : 0
+      const tx = kind === 'phone' ? 15 : 17
+      const distanceM = 10 ** ((23 + gain - 47 - rssi) / 28)
+      const p = project({
+        propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+        isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
+        aps: [ap({
+          id: 'a',
+          x: 0,
+          y: 0,
+          mimo: 2,
+          band24: { enabled: false, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 },
+          band5: { enabled: true, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: width },
+        })],
+        clients: [client({
+          id: 'c',
+          x: distanceM / 0.02,
+          y: 0,
+          preset: kind,
+          wifiGen: 'wifi6',
+          mimo: 2,
+          supports5: true,
+          txPowerDbm: tx,
+          gainDbi: gain,
+        })],
+      })
+      return estimateClients(p, 0.02, false)[0]
+    }
+    const phone80 = place('phone', -74, 80)
+    const laptop20 = place('laptop', -78, 20)
+    for (const est of [phone80, laptop20]) {
+      expect(est.rssiDbm ?? -200).toBeGreaterThan(-82)
+      expect(est.snrDb ?? 0).toBeGreaterThanOrEqual(5)
+      expect(est.downMbps).toBeGreaterThan(0)
+      expect(est.warnings).not.toContain('no-link')
+    }
+    expect(phone80.rssiDbm).toBeCloseTo(-74, 0)
+    expect(laptop20.rssiDbm).toBeCloseTo(-78, 0)
+    const dead = place('phone', -84, 80)
+    expect(dead.downMbps).toBe(0)
+    expect(dead.warnings).toContain('no-link')
+  })
+
+  it('ignores a ray that only clips a wall end, on the grid and at a point', () => {
+    const mpp = 0.02
+    const tip = wall('tip', [0, 0, 400, 0], 'brick')
+    const segs = buildSegments([tip], '5')
+    expect(wallLossBetween(200, -200, 200, 200, segs, mpp)).toBe(15)
+    expect(wallLossBetween(396, -200, 396, 200, segs, mpp)).toBe(0)
+    const grid = computeRssiGrid({
+      walls: [tip],
+      aps: [ap({ id: 'a', x: 200, y: -80, band24: { enabled: false, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 } })],
+      band: '5',
+      exponent: 2.8,
+      autoClutter: false,
+      metersPerPixel: mpp,
+      originX: 180,
+      originY: 40,
+      widthPx: 40,
+      heightPx: 40,
+      cellM: 0.4,
+    })
+    const cell = Math.floor(grid.height / 2) * grid.width + Math.floor(grid.width / 2)
+    const px = grid.originX + (Math.floor(grid.width / 2) + 0.5) * grid.cellPx
+    const py = grid.originY + (Math.floor(grid.height / 2) + 0.5) * grid.cellPx
+    const point = linkBudget({
+      x1: 200,
+      y1: -80,
+      x2: px,
+      y2: py,
+      txPowerDbm: 23,
+      gainDbi: 0,
+      segs,
+      metersPerPixel: mpp,
+      freqMHz: 5200,
+      exponent: 2.8,
+      noiseDbm: -86,
+    })
+    expect(grid.rssi[cell]).toBeCloseTo(point.rssiDbm, 5)
   })
 })

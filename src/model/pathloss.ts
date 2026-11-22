@@ -103,10 +103,18 @@ export function wallLossBetween(
   metersPerPixel = 1,
 ): number {
   const lengthM = Math.max(Math.hypot(bx - ax, by - ay) * metersPerPixel, 0.01)
+  const dx = bx - ax
+  const dy = by - ay
   const hits: { alongM: number; loss: number }[] = []
   for (const s of segs) {
     const t = crossingT(ax, ay, bx, by, s.x1, s.y1, s.x2, s.y2)
     if (t === null) continue
+    const hitX = ax + t * dx
+    const hitY = ay + t * dy
+    const fromEndM = Math.min(Math.hypot(hitX - s.x1, hitY - s.y1), Math.hypot(hitX - s.x2, hitY - s.y2)) * metersPerPixel
+    // A ray that only clips a wall tip or a junction is not a crossing. The same
+    // rule is used for the heatmap grid and for a client point.
+    if (fromEndM < 0.2) continue
     hits.push({ alongM: t * lengthM, loss: s.loss })
   }
   hits.sort((a, b) => a.alongM - b.alongM)

@@ -409,7 +409,6 @@ function ApFields({ ap, advanced }: { ap: AccessPoint; advanced: boolean }) {
           <RadioFields ap={ap} band="band5" title={t('band.5')} widths={[20, 40, 80, 160]} />
         </>
       )}
-      <p className="build-version" data-testid="build-version">{__APP_VERSION__}</p>
     </div>
   )
 }

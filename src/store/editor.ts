@@ -102,7 +102,7 @@ interface EditorState {
   setPropagation: (patch: Partial<Project['propagation']>, history?: boolean) => void
   setFloorPlan: (plan: Project['floorPlan']) => void
   rename: (name: string) => void
-  replaceProject: (project: Project, notices?: MigrationNotice[]) => void
+  replaceProject: (project: Project, notices?: MigrationNotice[], keepUndo?: boolean) => void
   dismissNotices: () => void
   newProject: (name: string) => void
 }
@@ -296,10 +296,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     })
   },
   rename: (name) => set({ project: { ...get().project, name, updatedAt: Date.now() }, touched: true }),
-  replaceProject: (project, notices = []) =>
+  replaceProject: (project, notices = [], keepUndo = false) =>
     set((state) => ({
       project,
-      past: [],
+      past: keepUndo ? [...state.past, cloneSnapshot(state.project)].slice(-100) : [],
       future: [],
       selection: null,
       touched: true,

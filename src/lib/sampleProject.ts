@@ -142,7 +142,7 @@ export function buildSampleProject(name: string): Project {
   return {
     version: 1,
     schemaVersion: 2,
-    id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `sample-${Date.now()}`,
+    id: 'sample-apartment',
     name,
     updatedAt: Date.now(),
     world: { width, height },
