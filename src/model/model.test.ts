@@ -222,7 +222,10 @@ describe('throughput and scores', () => {
   it('maps SNR onto the MCS table', () => {
     expect(phyMbpsFromSnr(4, 'wifi6', 80, 2)).toBe(0)
     expect(phyMbpsFromSnr(18, 'wifi6', 80, 2)).toBeCloseTo(51.6 * 4.19 * 2, 1)
-    expect(phyMbpsFromSnr(40, 'wifi4', 40, 1)).toBeCloseTo(86 * 2, 1)
+    expect(phyMbpsFromSnr(40, 'wifi4', 40, 1)).toBeLessThanOrEqual(150)
+    expect(phyMbpsFromSnr(40, 'wifi4', 40, 1)).toBeCloseTo(150, 1)
+    expect(phyMbpsFromSnr(40, 'wifi4', 80, 1)).toBeLessThanOrEqual(150)
+    expect(phyMbpsFromSnr(40, 'wifi5', 80, 2)).toBeLessThanOrEqual(867)
   })
 
   it('gives a nearby client usable throughput on a wired AP', () => {
@@ -405,5 +408,40 @@ describe('specification reference values', () => {
     expect(activityLevel({ downMbps: 20, upMbps: 12, pingMs: 20, jitterMs: 2 }, 'broadcast')).toBe(4)
     expect(scoreActivity({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2 }, 'gaming')).toBe(100)
     expect(scoreActivity({ downMbps: 80, upMbps: 40, pingMs: 130, jitterMs: 20 }, 'gaming')).toBe(0)
+    expect(activityLevel({ downMbps: 100, upMbps: 0, pingMs: 10, jitterMs: 1 }, 'surfing')).toBe(0)
+    expect(activityLevel({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2, lossPct: 4 }, 'cloud')).toBe(0)
+    expect(activityLevel({ downMbps: 80, upMbps: 40, pingMs: 12, jitterMs: 2, lossPct: 4 }, 'gaming')).toBe(0)
+  })
+
+  it('does not raise ping when the signal gets stronger', () => {
+    const p = project({
+      propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+      isp: { downMbps: 1000, upMbps: 1000, pingMs: 8 },
+      aps: [ap({ id: 'a', x: 0, y: 0, band24: { enabled: false, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 } })],
+      clients: [
+        client({ id: 'near', x: 50, y: 0 }),
+        client({ id: 'far', x: 2000, y: 0 }),
+      ],
+    })
+    const estimates = estimateClients(p, 0.02, false)
+    const near = estimates.find((item) => item.clientId === 'near')
+    const far = estimates.find((item) => item.clientId === 'far')
+    expect(near?.pingMs).not.toBeNull()
+    expect(far?.pingMs).not.toBeNull()
+    expect(near!.pingMs!).toBeLessThanOrEqual(far!.pingMs!)
+  })
+
+  it('treats a dead uplink as no connection', () => {
+    const p = project({
+      propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+      isp: { downMbps: 500, upMbps: 500, pingMs: 8 },
+      aps: [ap({ id: 'a', x: 0, y: 0, band24: { enabled: false, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: 80 } })],
+      clients: [client({ id: 'c', x: 3000, y: 0, txPowerDbm: 15, gainDbi: -2 })],
+    })
+    const est = estimateClients(p, 0.02, false)[0]
+    expect(est.downMbps).toBe(0)
+    expect(est.upMbps).toBe(0)
+    expect(est.scores.surfing).toBe(0)
+    expect(est.warnings).toContain('no-link')
   })
 })

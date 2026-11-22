@@ -3,6 +3,7 @@ import type { AccessPoint, ClientDevice, Project, Wall } from '../model/types'
 export function createEmptyProject(name: string): Project {
   return {
     version: 1,
+    schemaVersion: 2,
     id: crypto.randomUUID(),
     name,
     updatedAt: Date.now(),
@@ -66,8 +67,8 @@ function asAps(value: unknown): AccessPoint[] {
         item.backhaul === 'wired' || item.backhaul === 'repeater' || item.backhaul === 'mesh-wireless' || item.backhaul === 'mesh-wired'
           ? item.backhaul
           : 'wired',
-      band24: asRadio(item.band24, { enabled: true, txPowerDbm: 20, gainDbi: 3, channelWidthMHz: 20 }),
-      band5: asRadio(item.band5, { enabled: true, txPowerDbm: 23, gainDbi: 4, channelWidthMHz: 80 }),
+      band24: asRadio(item.band24, { enabled: true, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 }),
+      band5: asRadio(item.band5, { enabled: true, txPowerDbm: 23, gainDbi: 0, channelWidthMHz: 80 }),
     }
     return [draft]
   })
@@ -97,7 +98,26 @@ function asClients(value: unknown): ClientDevice[] {
   })
 }
 
-export function parseProject(value: unknown): Project | null {
+export type MigrationNotice = 'metal' | 'exponent' | 'gain'
+
+export interface ReadProject {
+  project: Project | null
+  notices: MigrationNotice[]
+}
+
+const LEGACY_GAINS: Record<string, [number, number]> = {
+  isp: [2, 3],
+  wifi5: [4, 5],
+  wifi6: [4, 5],
+  mesh: [3, 4],
+  repeater: [2, 2],
+}
+
+function near(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.05
+}
+
+function assembleProject(value: unknown): Project | null {
   if (!isRecord(value) || value.version !== 1) return null
   if (typeof value.id !== 'string' || typeof value.name !== 'string') return null
   const world = isRecord(value.world) && typeof value.world.width === 'number' && typeof value.world.height === 'number'
@@ -129,8 +149,10 @@ export function parseProject(value: unknown): Project | null {
         noiseExtraDb: typeof value.propagation.noiseExtraDb === 'number' ? value.propagation.noiseExtraDb : 3,
       }
     : { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 }
+  const schemaVersion = typeof value.schemaVersion === 'number' ? value.schemaVersion : undefined
   return {
     version: 1,
+    schemaVersion,
     id: value.id,
     name: value.name,
     updatedAt: typeof value.updatedAt === 'number' ? value.updatedAt : Date.now(),
@@ -143,4 +165,48 @@ export function parseProject(value: unknown): Project | null {
     isp,
     propagation,
   }
+}
+
+/** Reads a project and migrates files from before schema 2. Schema 2 is left unchanged. */
+export function readProject(value: unknown): ReadProject {
+  const assembled = assembleProject(value)
+  if (!assembled) return { project: null, notices: [] }
+  if ((assembled.schemaVersion ?? 0) >= 2) return { project: { ...assembled, schemaVersion: 2 }, notices: [] }
+
+  const notices: MigrationNotice[] = []
+  let project = assembled
+  if (project.walls.some((wall) => wall.materialId === 'metal')) notices.push('metal')
+  if (near(project.propagation.exponent, 2.2)) {
+    notices.push('exponent')
+    project = { ...project, propagation: { ...project.propagation, exponent: 2.8 } }
+  }
+
+  const rawAps = isRecord(value) && Array.isArray(value.aps) ? value.aps : []
+  let gainReset = false
+  const aps = project.aps.map((ap, index) => {
+    const raw = rawAps[index]
+    const raw24 = isRecord(raw) && isRecord(raw.band24) ? raw.band24 : null
+    const raw5 = isRecord(raw) && isRecord(raw.band5) ? raw.band5 : null
+    const had24 = raw24 !== null
+    const had5 = raw5 !== null
+    const gain24 = raw24 && typeof raw24.gainDbi === 'number' ? raw24.gainDbi : 3
+    const gain5 = raw5 && typeof raw5.gainDbi === 'number' ? raw5.gainDbi : 4
+    const pair = LEGACY_GAINS[ap.preset]
+    const legacyPair = Boolean(pair && near(gain24, pair[0]) && near(gain5, pair[1]))
+    const oldFallback = near(gain24, 3) && near(gain5, 4)
+    if (!had24 || !had5 || legacyPair || oldFallback) {
+      gainReset = true
+      return { ...ap, band24: { ...ap.band24, gainDbi: 0 }, band5: { ...ap.band5, gainDbi: 0 } }
+    }
+    return ap
+  })
+  if (gainReset) {
+    notices.push('gain')
+    project = { ...project, aps }
+  }
+  return { project: { ...project, schemaVersion: 2 }, notices }
+}
+
+export function parseProject(value: unknown): Project | null {
+  return readProject(value).project
 }

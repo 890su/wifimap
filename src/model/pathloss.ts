@@ -219,7 +219,7 @@ export function computeRssiGrid(req: HeatmapRequest): HeatmapGrid {
   return { width: cols, height: rows, cellPx, originX: req.originX, originY: req.originY, rssi }
 }
 
-/** Share of cells at or above the threshold. Cells with no AP are ignored. */
+/** Share of the plan. Cells below −82 dBm, including beyond AP range, count as no link. */
 export interface ZoneShare {
   excellent: number
   good: number
@@ -233,7 +233,7 @@ export function coverageZones(rssi: ArrayLike<number>): ZoneShare {
   let total = 0
   for (let i = 0; i < rssi.length; i++) {
     const value = rssi[i]
-    if (value <= -110) continue
+    if (!Number.isFinite(value)) continue
     total++
     if (value >= -55) bins.excellent++
     else if (value >= -67) bins.good++
@@ -255,7 +255,7 @@ export function coverageFraction(rssi: ArrayLike<number>, thresholdDbm: number):
   let total = 0
   let ok = 0
   for (let i = 0; i < rssi.length; i++) {
-    if (rssi[i] <= -110) continue
+    if (!Number.isFinite(rssi[i])) continue
     total++
     if (rssi[i] >= thresholdDbm) ok++
   }

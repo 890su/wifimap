@@ -64,6 +64,8 @@ export interface FloorPlan {
 
 export interface Project {
   version: 1
+  /** 2 means antenna gain, exponent, and the metal material were already migrated. */
+  schemaVersion?: number
   id: string
   name: string
   updatedAt: number

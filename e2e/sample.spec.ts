@@ -100,6 +100,51 @@ test('a saved project that loads late does not replace the sample', async ({ pag
   await expectApartment(page)
 })
 
+test('fullscreen keeps the open project instead of a different saved plan', async ({ page }) => {
+  await page.goto('/?embed=1')
+  await page.getByRole('button', { name: CARD_NAME }).click()
+  await expectApartment(page)
+  await page.evaluate(async () => {
+    const project = {
+      version: 1,
+      id: 'other-plan',
+      name: 'Старый план',
+      updatedAt: Date.now(),
+      world: { width: 800, height: 600 },
+      floorPlan: null,
+      scale: null,
+      walls: [],
+      aps: [],
+      clients: [],
+      isp: { downMbps: 10, upMbps: 10, pingMs: 8 },
+      propagation: { exponent: 2.8, autoClutter: false, noiseExtraDb: 3 },
+    }
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('wifiplan', 1)
+      request.onupgradeneeded = () => {
+        if (!request.result.objectStoreNames.contains('projects')) request.result.createObjectStore('projects')
+      }
+      request.onsuccess = () => {
+        const db = request.result
+        const tx = db.transaction('projects', 'readwrite')
+        tx.objectStore('projects').put(project, project.id)
+        tx.oncomplete = () => {
+          localStorage.setItem('wifiplan:last', project.id)
+          db.close()
+          resolve()
+        }
+        tx.onerror = () => reject(tx.error)
+      }
+      request.onerror = () => reject(request.error)
+    })
+  })
+  const popupPromise = page.waitForEvent('popup')
+  await page.getByTestId('embed-fullscreen').click()
+  const popup = await popupPromise
+  await expect(popup.locator('.name-input')).toHaveValue(SAMPLE_NAME)
+  await expectApartment(popup)
+})
+
 test('opens the sample apartment while a service worker is in control', async ({ page }) => {
   await page.goto('http://127.0.0.1:43124/')
   await expect(page.getByTestId('project-menu')).toBeVisible()

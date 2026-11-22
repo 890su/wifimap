@@ -70,8 +70,8 @@ export function ProjectMenu({
                 type="button"
                 onClick={() =>
                   run(() => {
-                    void loadProject(item.id).then((project) => {
-                      if (project) replaceProject(project)
+                    void loadProject(item.id).then(({ project, notices }) => {
+                      if (project) replaceProject(project, notices)
                     })
                   })
                 }

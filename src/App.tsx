@@ -4,8 +4,9 @@ import { SidePanel } from './components/SidePanel'
 import { StageView, type StageHandle } from './components/StageView'
 import { ToolRail } from './components/ToolRail'
 import { translate, type MessageKey } from './i18n'
+import { receiveProjectHandoff } from './lib/handoff'
 import { fileToPlan } from './lib/planFile'
-import { parseProject } from './lib/project'
+import { readProject } from './lib/project'
 import { loadLastProject, saveProject } from './lib/storage'
 import type { Tool } from './model/types'
 import { useEditor } from './store/editor'
@@ -32,6 +33,7 @@ export function App({ embed }: { embed: boolean }) {
   const cameraRef = useRef<HTMLInputElement>(null)
   const jsonRef = useRef<HTMLInputElement>(null)
   const toast = useEditor((state) => state.toast)
+  const notices = useEditor((state) => state.notices)
   const setToast = useEditor((state) => state.setToast)
   const hydrated = useEditor((state) => state.hydrated)
   const lang = useEditor((state) => state.lang)
@@ -47,20 +49,33 @@ export function App({ embed }: { embed: boolean }) {
       try {
         const params = new URLSearchParams(window.location.search)
         const code = params.get('link')
+        const handed = await receiveProjectHandoff(() => cancel)
+        if (handed?.project && stillFresh()) {
+          useEditor.getState().replaceProject(handed.project, handed.notices)
+          return
+        }
         if (code) {
           const response = await fetch(`/api/short-links?code=${encodeURIComponent(code)}`)
           if (response.ok && stillFresh()) {
             const body: unknown = await response.json()
-            const project = parseProject(body)
-            if (project && stillFresh()) useEditor.getState().replaceProject(project)
+            const read = readProject(body)
+            if (read.project && stillFresh()) useEditor.getState().replaceProject(read.project, read.notices)
           } else if (!cancel && !response.ok) {
             useEditor.getState().setToast(response.status === 501 ? 'short' : 'share-fail')
           }
         }
         if (!stillFresh()) return
         const saved = await loadLastProject()
-        if (saved && stillFresh()) {
-          useEditor.setState({ project: saved, past: [], future: [], selection: null, touched: false })
+        if (saved.project && stillFresh()) {
+          useEditor.setState({
+            project: saved.project,
+            notices: saved.notices,
+            past: [],
+            future: [],
+            selection: null,
+            touched: false,
+          })
+          if (saved.notices.length > 0) void saveProject(saved.project).catch(() => undefined)
         }
       } catch {
         // storage can be unavailable; the editor still works in memory
@@ -91,13 +106,25 @@ export function App({ embed }: { embed: boolean }) {
 
   useEffect(() => {
     if (!embed) return
+    let last = 0
     const send = () => {
-      const height = Math.max(640, document.documentElement.scrollHeight, document.body.scrollHeight)
+      const mobile = window.matchMedia('(max-width: 900px)').matches
+      const header = document.querySelector('.header')?.getBoundingClientRect().height ?? 0
+      const tools = document.querySelector('.tools')?.getBoundingClientRect().height ?? 0
+      const side = document.querySelector('.side-body')?.scrollHeight ?? 0
+      const peek = document.querySelector('.peek')?.getBoundingClientRect().height ?? 0
+      const stage = 520
+      const height = Math.ceil(mobile ? header + stage + side + peek + tools : header + Math.max(stage, side))
+      if (height === last) return
+      last = height
       window.parent.postMessage({ type: 'wifiplan:height', height }, '*')
     }
     send()
     const observer = new ResizeObserver(send)
-    observer.observe(document.documentElement)
+    for (const selector of ['.header', '.side-body', '.tools', '.peek']) {
+      const node = document.querySelector(selector)
+      if (node) observer.observe(node)
+    }
     window.addEventListener('resize', send)
     return () => {
       observer.disconnect()
@@ -152,12 +179,12 @@ export function App({ embed }: { embed: boolean }) {
   const openJson = async (file: File | undefined) => {
     if (!file) return
     try {
-      const project = parseProject(JSON.parse(await file.text()))
-      if (!project) {
+      const read = readProject(JSON.parse(await file.text()) as unknown)
+      if (!read.project) {
         useEditor.getState().setToast('json')
         return
       }
-      useEditor.getState().replaceProject(project)
+      useEditor.getState().replaceProject(read.project, read.notices)
     } catch {
       useEditor.getState().setToast('json')
     }
@@ -201,6 +228,14 @@ export function App({ embed }: { embed: boolean }) {
 
   return (
     <div className={embed ? 'app is-embed' : 'app'}>
+      {notices.length > 0 && (
+        <div className="migrate" role="status" data-testid="migration-banner">
+          {notices.map((code) => (
+            <p key={code}>{translate(lang, `migrate.${code}` as MessageKey)}</p>
+          ))}
+          <button type="button" onClick={() => useEditor.getState().dismissNotices()}>{translate(lang, 'migrate.dismiss')}</button>
+        </div>
+      )}
       <Header
         embed={embed}
         onUpload={() => planRef.current?.click()}

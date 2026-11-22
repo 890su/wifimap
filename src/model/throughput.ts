@@ -70,16 +70,28 @@ export function widthFactor(widthMHz: number): number {
   return factor
 }
 
-/** Highest MCS the SNR can hold, times the channel-width factor and spatial streams. */
+function standardPhyCap(gen: WifiGen, widthMHz: number, streams: number): number {
+  const n = Math.max(1, streams)
+  if (gen === 'wifi4') return (widthMHz <= 20 ? 72.2 : 150) * n
+  if (gen === 'wifi5') {
+    const per = widthMHz <= 20 ? 86.7 : widthMHz <= 40 ? 200 : widthMHz <= 80 ? 433.3 : 866.7
+    return per * n
+  }
+  return Number.POSITIVE_INFINITY
+}
+
+/** Highest MCS the SNR can hold, capped at the client standard's PHY maximum. */
 export function phyMbpsFromSnr(snrDb: number, gen: WifiGen, widthMHz: number, streams: number): number {
   if (snrDb < 5) return 0
+  const width = gen === 'wifi4' ? Math.min(widthMHz, 40) : widthMHz
   const cap = maxMcs(gen)
   let rate = 0
   for (const row of MCS_TABLE) {
     if (row.mcs > cap) break
     if (snrDb + 1e-6 >= row.snr) rate = row.mbps20
   }
-  return rate * widthFactor(widthMHz) * Math.max(1, streams)
+  const raw = rate * widthFactor(width) * Math.max(1, streams)
+  return Math.min(raw, standardPhyCap(gen, width, streams))
 }
 
 /** @deprecated Smooth curve kept only so older tests can import a monotonic helper. */
@@ -124,7 +136,7 @@ export function activityLevel(
   metrics: { downMbps: number; upMbps: number; pingMs: number; jitterMs: number; lossPct?: number },
   activity: ActivityId,
 ): number {
-  if (metrics.downMbps <= 0 && metrics.upMbps <= 0) return 0
+  if (metrics.downMbps <= 0 || metrics.upMbps <= 0) return 0
   const loss = metrics.lossPct ?? 0
   if (activity === 'surfing') {
     return Math.min(levelAt(metrics.downMbps, [[2, 2], [5, 3], [25, 4]]), lowerLevel(metrics.pingMs, 50, 100, 200))
@@ -151,6 +163,7 @@ export function activityLevel(
       loss < 0.5 ? 4 : loss < 1 ? 3 : 1,
     )
   }
+  if (loss > 2) return 0
   return Math.min(levelAt(metrics.downMbps, [[5, 1], [10, 2], [15, 3], [35, 4]]), lowerLevel(metrics.pingMs, 30, 50, 80))
 }
 
@@ -212,9 +225,11 @@ function airLink(
   const up = linkBudget({ ...common, txPowerDbm: client.tx, gainDbi: client.gain, rxGainDbi: radio.gainDbi })
   const gen = olderGen(ap.wifiGen, client.wifiGen)
   const streams = Math.max(1, Math.min(ap.mimo, client.mimo))
-  const dead = down.rssiDbm < NO_LINK_RSSI_DBM || down.snrDb < 5
+  const downDead = down.rssiDbm < NO_LINK_RSSI_DBM || down.snrDb < 5
+  const upDead = up.rssiDbm < NO_LINK_RSSI_DBM || up.snrDb < 5
+  const dead = downDead || upDead
   const phy = dead ? 0 : phyMbpsFromSnr(down.snrDb, gen, radio.channelWidthMHz, streams)
-  const upPhy = up.rssiDbm < NO_LINK_RSSI_DBM || up.snrDb < 5 ? 0 : phyMbpsFromSnr(up.snrDb, gen, radio.channelWidthMHz, streams)
+  const upPhy = dead ? 0 : phyMbpsFromSnr(up.snrDb, gen, radio.channelWidthMHz, streams)
   return {
     mbps: phy * MAC_ETA[gen],
     upMbps: upPhy * MAC_ETA[gen],
@@ -375,8 +390,7 @@ export function estimateClients(
     const up = Math.max(0, Math.min((choice.link.upMbps * penalty) / shares, choice.uplink.capMbps, ispUp))
     const twifi = choice.link.snr > 25 ? 2 : choice.link.snr > 15 ? 5 : 8
     const hop = choice.uplink.wireless ? 4 : 0.2
-    const queue = down > 0 && down >= ispDown * 0.8 ? 12 : 0
-    const pingMs = ispPing + twifi + hop + queue
+    const pingMs = ispPing + twifi + hop
     const jitterMs = 1 + (choice.link.snr < 15 ? 4 : 0) + (choice.uplink.wireless ? 2 : 0)
     const lossPct = choice.link.snr - 5 < 3 ? 4 : choice.link.snr < 15 ? 0.8 : 0.1
     const metrics = { downMbps: down, upMbps: up, pingMs, jitterMs, lossPct }

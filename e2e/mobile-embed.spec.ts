@@ -7,11 +7,18 @@ async function fits(page: import('@playwright/test').Page) {
   }))
   expect(box.scroll).toBeLessThanOrEqual(box.client + 1)
   for (const id of ['project-menu', 'tool-client', 'tool-ap']) {
-    const item = await page.getByTestId(id).boundingBox()
+    const loc = page.getByTestId(id)
+    await loc.scrollIntoViewIfNeeded()
+    const item = await loc.boundingBox()
     expect(item, id).not.toBeNull()
     expect(item!.x).toBeGreaterThanOrEqual(-1)
     expect(item!.x + item!.width).toBeLessThanOrEqual(box.client + 1)
-    if (id !== 'project-menu') expect(item!.height).toBeGreaterThanOrEqual(44)
+    if (id !== 'project-menu') {
+      expect(item!.height).toBeGreaterThanOrEqual(44)
+      expect(item!.width).toBeGreaterThanOrEqual(44)
+      const clipped = await loc.locator('span').evaluate((node) => node.scrollWidth - node.clientWidth)
+      expect(clipped).toBeLessThanOrEqual(1)
+    }
   }
 }
 
@@ -56,10 +63,12 @@ test('embed frame stays inside a phone iframe and reports its height', async ({ 
   await expect(child!.locator('[data-testid="embed-fullscreen"]')).toBeVisible()
   await page.waitForFunction(() => {
     const frame = document.querySelector('iframe')
-    return Boolean(frame && Number.parseInt(frame.style.height, 10) >= 480)
+    return Boolean(frame && Number.parseInt(frame.style.height, 10) > 640)
   })
   const script = await page.request.get('/embed.js')
   expect(script.ok()).toBeTruthy()
-  expect(await script.text()).toContain('wifiplan:height')
-  expect(await script.text()).not.toContain('<div id="root">')
+  const source = await script.text()
+  expect(source).toContain('wifiplan:height')
+  expect(source).toContain('event.origin')
+  expect(source).not.toContain('<div id="root">')
 })

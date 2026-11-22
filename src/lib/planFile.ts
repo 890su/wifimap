@@ -18,7 +18,7 @@ function readFile(file: File): Promise<string> {
   })
 }
 
-function raster(image: CanvasImageSource, width: number, height: number, type: 'image/png' | 'image/jpeg'): FloorPlan {
+function raster(image: CanvasImageSource, width: number, height: number): FloorPlan {
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -27,8 +27,7 @@ function raster(image: CanvasImageSource, width: number, height: number, type: '
   context.fillStyle = '#efe8da'
   context.fillRect(0, 0, width, height)
   context.drawImage(image, 0, 0, width, height)
-  const dataUrl = type === 'image/png' ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', 0.86)
-  return { dataUrl, width, height }
+  return { dataUrl: canvas.toDataURL('image/png'), width, height }
 }
 
 async function imageFileToPlan(file: File): Promise<FloorPlan> {
@@ -38,8 +37,8 @@ async function imageFileToPlan(file: File): Promise<FloorPlan> {
   const scale = Math.min(1, maxDim / Math.max(image.width, image.height))
   const width = Math.max(1, Math.round(image.width * scale))
   const height = Math.max(1, Math.round(image.height * scale))
-  const keepPng = file.type === 'image/png' || file.name.toLowerCase().endsWith('.png')
-  return raster(image, width, height, keepPng ? 'image/png' : 'image/jpeg')
+  if (scale === 1 && src.startsWith('data:image/png')) return { dataUrl: src, width: image.width, height: image.height }
+  return raster(image, width, height)
 }
 
 export async function fileToPlan(file: File): Promise<FloorPlan> {

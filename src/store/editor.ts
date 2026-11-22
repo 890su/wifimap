@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { translate, type MessageKey } from '../i18n'
-import { createEmptyProject } from '../lib/project'
+import { createEmptyProject, type MigrationNotice } from '../lib/project'
 import type { AccessPoint, ApPreset, ClientDevice, ClientPreset, Project, Tool, Wall } from '../model/types'
 
 export type Selection =
@@ -71,6 +71,7 @@ interface EditorState {
   zones: { excellent: number; good: number; fair: number; weak: number; dead: number } | null
   renderer: 'webgl2' | 'canvas2d' | null
   toast: string | null
+  notices: MigrationNotice[]
   setTool: (tool: Tool) => void
   setBand: (band: '2.4' | '5') => void
   setMode: (mode: 'simple' | 'advanced') => void
@@ -101,7 +102,8 @@ interface EditorState {
   setPropagation: (patch: Partial<Project['propagation']>, history?: boolean) => void
   setFloorPlan: (plan: Project['floorPlan']) => void
   rename: (name: string) => void
-  replaceProject: (project: Project) => void
+  replaceProject: (project: Project, notices?: MigrationNotice[]) => void
+  dismissNotices: () => void
   newProject: (name: string) => void
 }
 
@@ -132,6 +134,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   zones: null,
   renderer: null,
   toast: null,
+  notices: [],
   setTool: (tool) => set({ tool }),
   setBand: (band) => {
     localStorage.setItem('wifiplan:band', band)
@@ -293,8 +296,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     })
   },
   rename: (name) => set({ project: { ...get().project, name, updatedAt: Date.now() }, touched: true }),
-  replaceProject: (project) =>
-    set((state) => ({ project, past: [], future: [], selection: null, touched: true, epoch: state.epoch + 1 })),
+  replaceProject: (project, notices = []) =>
+    set((state) => ({
+      project,
+      past: [],
+      future: [],
+      selection: null,
+      touched: true,
+      epoch: state.epoch + 1,
+      notices,
+    })),
+  dismissNotices: () => set({ notices: [] }),
   newProject: (name) =>
     set((state) => ({
       project: createEmptyProject(name),
@@ -304,6 +316,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       touched: true,
       tool: 'select',
       epoch: state.epoch + 1,
+      notices: [],
     })),
 }))
 

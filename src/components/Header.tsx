@@ -1,5 +1,6 @@
 import { Redo2, Undo2 } from 'lucide-react'
 import { useMedia } from '../hooks/useMedia'
+import { openPlannerWindow } from '../lib/handoff'
 import { openSampleApartment } from '../lib/openSample'
 import { useEditor, useT } from '../store/editor'
 import { ProjectMenu } from './ProjectMenu'
@@ -86,11 +87,7 @@ export function Header({
             data-testid="embed-fullscreen"
             aria-label={t('embed.fullscreen')}
             title={t('embed.fullscreen')}
-            onClick={() => {
-              const url = new URL(window.location.href)
-              url.searchParams.delete('embed')
-              window.open(url.toString(), '_blank', 'noopener')
-            }}
+            onClick={() => openPlannerWindow(useEditor.getState().project)}
           >
             ⛶
           </button>

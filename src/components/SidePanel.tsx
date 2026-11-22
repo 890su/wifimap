@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMedia } from '../hooks/useMedia'
 import { fmtMbps, fmtMs, fmtNum } from '../lib/format'
-import { qualityKey, type MessageKey } from '../i18n'
+import { qualityKey, starCount, type MessageKey } from '../i18n'
 import { MATERIALS, SIMPLE_MATERIAL_IDS } from '../model/materials'
 import { AP_PRESET_IDS, AP_PRESETS, CLIENT_PRESET_IDS, CLIENT_PRESETS } from '../model/presets'
 import { ACTIVITY_IDS, effectiveScale, estimateClients } from '../model'
@@ -116,8 +116,8 @@ export function SidePanel() {
 
         <section>
           <h2>{t('heat.title')}</h2>
-          <div className="legend" aria-hidden="true">
-            <span>{t('heat.weak')}</span>
+          <div className="legend" data-testid="heatmap-legend">
+            <span className="legend-dead" data-testid="legend-nolink">{t('zone.dead')}</span>
             <i />
             <span>{t('heat.strong')}</span>
           </div>
@@ -226,7 +226,7 @@ export function SidePanel() {
                     <div key={id} className="score">
                       <span>{t(`act.${id}`)}</span>
                       <span className="score-track"><span style={{ width: `${score}%` }} /></span>
-                      <em>{'★'.repeat(Math.max(1, Math.round(score / 25)))}{'☆'.repeat(Math.max(0, 5 - Math.max(1, Math.round(score / 25))))} {t(qualityKey(score))}</em>
+                      <em>{'★'.repeat(starCount(score))}{'☆'.repeat(5 - starCount(score))} {t(qualityKey(score))}</em>
                     </div>
                   )
                 })}
@@ -409,6 +409,7 @@ function ApFields({ ap, advanced }: { ap: AccessPoint; advanced: boolean }) {
           <RadioFields ap={ap} band="band5" title={t('band.5')} widths={[20, 40, 80, 160]} />
         </>
       )}
+      <p className="build-version" data-testid="build-version">{__APP_VERSION__}</p>
     </div>
   )
 }

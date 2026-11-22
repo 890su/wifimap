@@ -1,4 +1,4 @@
-import { parseProject } from './project'
+import { parseProject, readProject, type MigrationNotice } from './project'
 import type { Project } from '../model/types'
 
 const DB_NAME = 'wifiplan'
@@ -33,7 +33,7 @@ export async function saveProject(project: Project): Promise<void> {
   localStorage.setItem(LAST_KEY, project.id)
 }
 
-export async function loadProject(id: string): Promise<Project | null> {
+export async function loadProject(id: string): Promise<{ project: Project | null; notices: MigrationNotice[] }> {
   const db = await openDb()
   const tx = db.transaction(STORE, 'readonly')
   const request = tx.objectStore(STORE).get(id)
@@ -42,12 +42,12 @@ export async function loadProject(id: string): Promise<Project | null> {
     request.onerror = () => reject(request.error)
   })
   db.close()
-  return parseProject(value)
+  return readProject(value)
 }
 
-export async function loadLastProject(): Promise<Project | null> {
+export async function loadLastProject(): Promise<{ project: Project | null; notices: MigrationNotice[] }> {
   const id = localStorage.getItem(LAST_KEY)
-  if (!id) return null
+  if (!id) return { project: null, notices: [] }
   return loadProject(id)
 }
 

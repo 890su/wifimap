@@ -47,10 +47,14 @@ function getWorker(): Worker {
 
 export function useHeatmap(project: Project, band: '2.4' | '5') {
   const setHeatmap = useEditor((state) => state.setHeatmap)
+  const opacity = useEditor((state) => state.heatmapOpacity)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
   const [placement, setPlacement] = useState<HeatPlacement>({ x: 0, y: 0, w: 1, h: 1 })
   const [epoch, setEpoch] = useState(0)
   const seq = useRef(0)
+  const gridRef = useRef<HeatmapGrid | null>(null)
+  const opacityRef = useRef(opacity)
+  opacityRef.current = opacity
 
   const signature = useMemo(
     () =>
@@ -69,6 +73,7 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
     const id = ++seq.current
     const currentProject = project
     if (currentProject.aps.length === 0) {
+      gridRef.current = null
       setCanvas(null)
       setHeatmap({ status: 'idle', coverage67: null, renderer: null })
       useEditor.getState().setZones(null)
@@ -99,7 +104,8 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
       }
       const apply = (grid: HeatmapGrid) => {
         if (seq.current !== id) return
-        const rendered = renderRssi(grid.rssi, grid.width, grid.height)
+        gridRef.current = grid
+        const rendered = renderRssi(grid.rssi, grid.width, grid.height, opacityRef.current)
         setCanvas(rendered.canvas)
         setPlacement({
           x: grid.originX,
@@ -151,6 +157,13 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
       if (worker && onError) worker.removeEventListener('error', onError)
     }
   }, [signature, band, setHeatmap, project])
+
+  useEffect(() => {
+    const grid = gridRef.current
+    if (!grid) return
+    const rendered = renderRssi(grid.rssi, grid.width, grid.height, opacity)
+    setCanvas(rendered.canvas)
+  }, [opacity])
 
   return { canvas, placement, epoch }
 }

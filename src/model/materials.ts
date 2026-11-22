@@ -14,6 +14,8 @@ export const MATERIALS: Material[] = [
   { id: 'shaft', lossDb: { '2.4': 30, '5': 40 }, color: '#3e4650' },
   { id: 'wood', lossDb: { '2.4': 4, '5': 6 }, color: '#8d6a3f' },
   { id: 'furniture', lossDb: { '2.4': 3, '5': 5 }, color: '#8a7b6a' },
+  /** Kept for projects saved before the material was removed. 25/32 dB, not drywall. */
+  { id: 'metal', lossDb: { '2.4': 25, '5': 32 }, color: '#3a4048' },
 ]
 
 /** Shown in simple mode. The rest stay available in advanced mode. */

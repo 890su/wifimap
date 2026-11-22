@@ -18,11 +18,15 @@ void main() {
   gl_Position = vec4(aPos, 0.0, 1.0);
 }`
 
-const FRAG = `#version 300 es
+/** Deepest red on the scale. No-link cells use this at full strength, including beyond AP range. */
+export const DEAD_RED: [number, number, number] = [115, 18, 32]
+
+export const HEATMAP_FRAG = `#version 300 es
 precision highp float;
 in vec2 vUv;
 out vec4 frag;
 uniform sampler2D uRssi;
+uniform float uOpacity;
 
 vec3 ramp(float x) {
   vec3 c0 = vec3(0.451, 0.071, 0.125);
@@ -42,13 +46,14 @@ vec3 ramp(float x) {
 
 void main() {
   float rssi = texture(uRssi, vec2(vUv.x, 1.0 - vUv.y)).r * 80.0 - 110.0;
-  if (rssi < -100.0) {
-    frag = vec4(0.0);
+  if (!(rssi >= -82.0)) {
+    frag = vec4(0.451, 0.071, 0.125, 0.95);
     return;
   }
-  float a = smoothstep(-100.0, -86.0, rssi) * 0.76;
-  frag = vec4(ramp(rssi), a);
+  frag = vec4(ramp(rssi), clamp(uOpacity, 0.35, 1.0));
 }`
+
+const FRAG = HEATMAP_FRAG
 
 function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
   const shader = gl.createShader(type)
@@ -97,7 +102,7 @@ function encode(rssi: Float32Array): Uint8Array {
   return bytes
 }
 
-function drawGl(rssi: Float32Array, width: number, height: number): HTMLCanvasElement {
+function drawGl(rssi: Float32Array, width: number, height: number, opacity: number): HTMLCanvasElement {
   const bag = ensureGl()
   const { gl, canvas, program, buffer, texture } = bag
   if (canvas.width !== width || canvas.height !== height) {
@@ -118,6 +123,7 @@ function drawGl(rssi: Float32Array, width: number, height: number): HTMLCanvasEl
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
   gl.uniform1i(gl.getUniformLocation(program, 'uRssi'), 0)
+  gl.uniform1f(gl.getUniformLocation(program, 'uOpacity'), opacity)
   gl.disable(gl.DEPTH_TEST)
   gl.enable(gl.BLEND)
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
@@ -129,8 +135,9 @@ function drawGl(rssi: Float32Array, width: number, height: number): HTMLCanvasEl
   return canvas
 }
 
-function colorAt(rssi: number): [number, number, number, number] {
-  if (rssi < -100) return [0, 0, 0, 0]
+/** Below −82 dBm, and any unset cell, is solid dark red so the plan does not show through white. */
+export function heatmapColor(rssi: number, opacity = 0.78): [number, number, number, number] {
+  if (!(rssi >= -82)) return [DEAD_RED[0], DEAD_RED[1], DEAD_RED[2], 242]
   const stops: { t: number; c: [number, number, number] }[] = [
     { t: -92, c: [115, 18, 32] },
     { t: -84, c: [196, 48, 42] },
@@ -157,11 +164,11 @@ function colorAt(rssi: number): [number, number, number, number] {
       }
     }
   }
-  const alpha = rssi < -86 ? Math.round(((rssi + 100) / 14) * 190) : 194
-  return [color[0], color[1], color[2], Math.max(0, Math.min(210, alpha))]
+  const alpha = Math.round(Math.min(1, Math.max(0.35, opacity)) * 255)
+  return [color[0], color[1], color[2], alpha]
 }
 
-function draw2d(rssi: Float32Array, width: number, height: number): HTMLCanvasElement {
+function draw2d(rssi: Float32Array, width: number, height: number, opacity: number): HTMLCanvasElement {
   if (!canvas2d) canvas2d = document.createElement('canvas')
   if (canvas2d.width !== width || canvas2d.height !== height) {
     canvas2d.width = width
@@ -171,7 +178,7 @@ function draw2d(rssi: Float32Array, width: number, height: number): HTMLCanvasEl
   if (!ctx) return canvas2d
   const image = ctx.createImageData(width, height)
   for (let i = 0; i < rssi.length; i++) {
-    const [r, g, b, a] = colorAt(rssi[i])
+    const [r, g, b, a] = heatmapColor(rssi[i], opacity)
     image.data[i * 4] = r
     image.data[i * 4 + 1] = g
     image.data[i * 4 + 2] = b
@@ -181,17 +188,22 @@ function draw2d(rssi: Float32Array, width: number, height: number): HTMLCanvasEl
   return canvas2d
 }
 
-export function renderRssi(rssi: Float32Array, width: number, height: number): {
+export function renderRssi(
+  rssi: Float32Array,
+  width: number,
+  height: number,
+  opacity = 0.78,
+): {
   canvas: HTMLCanvasElement
   renderer: 'webgl2' | 'canvas2d'
 } {
   if (!glFailed) {
     try {
-      return { canvas: drawGl(rssi, width, height), renderer: 'webgl2' }
+      return { canvas: drawGl(rssi, width, height, opacity), renderer: 'webgl2' }
     } catch {
       glFailed = true
       glBag = null
     }
   }
-  return { canvas: draw2d(rssi, width, height), renderer: 'canvas2d' }
+  return { canvas: draw2d(rssi, width, height, opacity), renderer: 'canvas2d' }
 }
