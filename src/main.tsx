@@ -12,6 +12,9 @@ import '@fontsource/jetbrains-mono/cyrillic-500.css'
 import '@fontsource/jetbrains-mono/latin-500.css'
 import './index.css'
 import { App } from './App.tsx'
+import { registerAppServiceWorker } from './pwa.ts'
+
+if (import.meta.env.PROD) registerAppServiceWorker()
 
 const embed = new URLSearchParams(window.location.search).get('embed') === '1'
 

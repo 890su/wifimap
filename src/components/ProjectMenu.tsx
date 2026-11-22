@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { openSampleApartment } from '../lib/openSample'
 import { deleteProject, listProjects, loadProject, type ProjectMeta } from '../lib/storage'
 import { useEditor, useT } from '../store/editor'
 
@@ -48,7 +49,10 @@ export function ProjectMenu({
       </button>
       {open && (
         <div className="menu-pop" role="menu">
-          <button type="button" onClick={() => run(() => newProject(t('default.name')))}>{t('project.new')}</button>
+          <button type="button" role="menuitem" onClick={() => run(() => newProject(t('default.name')))}>{t('project.new')}</button>
+          <button type="button" role="menuitem" data-testid="open-sample" onClick={() => run(() => openSampleApartment(t('project.sample')))}>
+            {t('project.sample')}
+          </button>
           <button type="button" onClick={() => run(onUpload)}>{t('project.upload')}</button>
           <button type="button" className="mobile-only" onClick={() => run(onCamera)}>{t('project.camera')}</button>
           <button type="button" onClick={() => run(onOpenJson)}>{t('project.openJson')}</button>

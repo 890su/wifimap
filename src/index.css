@@ -198,12 +198,13 @@ button:disabled { cursor: default; opacity: 0.4; }
   background: rgba(255, 250, 242, 0.94);
   color: #241f18;
   box-shadow: var(--shadow);
-  pointer-events: none;
+  pointer-events: auto;
+  touch-action: manipulation;
 }
 .empty-card h2 { margin: 0 0 8px; font-size: 22px; letter-spacing: -0.03em; }
 .empty-card p { margin: 0 0 12px; color: #5c564c; line-height: 1.45; font-size: 14px; }
 .empty-kicker { color: #8a5a12 !important; font-size: 12px !important; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.empty-card .btn { pointer-events: auto; }
+.empty-card .btn { pointer-events: auto; position: relative; z-index: 1; }
 
 .side {
   grid-row: 2;

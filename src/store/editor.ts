@@ -63,6 +63,8 @@ interface EditorState {
   heatmapOpacity: number
   snapEnabled: boolean
   touched: boolean
+  /** Bumps on every user-driven project replacement so a late IndexedDB read cannot overwrite it. */
+  epoch: number
   hydrated: boolean
   heatmapStatus: HeatStatus
   coverage67: number | null
@@ -123,6 +125,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   heatmapOpacity: 0.62,
   snapEnabled: true,
   touched: false,
+  epoch: 0,
   hydrated: false,
   heatmapStatus: 'idle',
   coverage67: null,
@@ -290,8 +293,18 @@ export const useEditor = create<EditorState>((set, get) => ({
     })
   },
   rename: (name) => set({ project: { ...get().project, name, updatedAt: Date.now() }, touched: true }),
-  replaceProject: (project) => set({ project, past: [], future: [], selection: null, touched: true }),
-  newProject: (name) => set({ project: createEmptyProject(name), past: [], future: [], selection: null, touched: true, tool: 'select' }),
+  replaceProject: (project) =>
+    set((state) => ({ project, past: [], future: [], selection: null, touched: true, epoch: state.epoch + 1 })),
+  newProject: (name) =>
+    set((state) => ({
+      project: createEmptyProject(name),
+      past: [],
+      future: [],
+      selection: null,
+      touched: true,
+      tool: 'select',
+      epoch: state.epoch + 1,
+    })),
 }))
 
 export function useT(): (key: MessageKey) => string {

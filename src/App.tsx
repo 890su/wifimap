@@ -38,24 +38,29 @@ export function App({ embed }: { embed: boolean }) {
 
   useEffect(() => {
     let cancel = false
+    const epoch = useEditor.getState().epoch
+    const stillFresh = () => {
+      const state = useEditor.getState()
+      return !cancel && !state.touched && state.epoch === epoch
+    }
     void (async () => {
       try {
         const params = new URLSearchParams(window.location.search)
         const code = params.get('link')
         if (code) {
           const response = await fetch(`/api/short-links?code=${encodeURIComponent(code)}`)
-          if (response.ok && !cancel && !useEditor.getState().touched) {
+          if (response.ok && stillFresh()) {
             const body: unknown = await response.json()
             const project = parseProject(body)
-            if (project) useEditor.getState().replaceProject(project)
+            if (project && stillFresh()) useEditor.getState().replaceProject(project)
           } else if (!cancel && !response.ok) {
             useEditor.getState().setToast(response.status === 501 ? 'short' : 'share-fail')
           }
         }
+        if (!stillFresh()) return
         const saved = await loadLastProject()
-        if (!cancel && saved && !useEditor.getState().touched) {
-          useEditor.getState().replaceProject(saved)
-          useEditor.setState({ touched: false })
+        if (saved && stillFresh()) {
+          useEditor.setState({ project: saved, past: [], future: [], selection: null, touched: false })
         }
       } catch {
         // storage can be unavailable; the editor still works in memory
@@ -227,6 +232,7 @@ function toastMessage(code: string | null, lang: 'ru' | 'en'): string | null {
     short: 'toast.shareOff',
     copied: 'toast.shareOn',
     'share-fail': 'toast.shareFail',
+    'sample-fail': 'toast.sampleFail',
   }
   const key = map[code]
   return key ? translate(lang, key) : null

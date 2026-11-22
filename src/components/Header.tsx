@@ -1,6 +1,6 @@
 import { Redo2, Undo2 } from 'lucide-react'
 import { useMedia } from '../hooks/useMedia'
-import { buildSampleProject } from '../lib/sampleProject'
+import { openSampleApartment } from '../lib/openSample'
 import { useEditor, useT } from '../store/editor'
 import { ProjectMenu } from './ProjectMenu'
 import { BandToggle, ModeToggle } from './Toggles'
@@ -34,7 +34,6 @@ export function Header({
   const future = useEditor((state) => state.future.length)
   const lang = useEditor((state) => state.lang)
   const setLang = useEditor((state) => state.setLang)
-  const replaceProject = useEditor((state) => state.replaceProject)
 
   return (
     <header className="header">
@@ -68,7 +67,12 @@ export function Header({
             </button>
           </>
         )}
-        <button type="button" className="btn btn-ghost desktop-only" onClick={() => replaceProject(buildSampleProject(t('project.sample')))}>
+        <button
+          type="button"
+          className="btn btn-ghost desktop-only"
+          data-testid="open-sample"
+          onClick={() => openSampleApartment(t('project.sample'))}
+        >
           {t('project.sample')}
         </button>
         <div className="seg lang desktop-only">

@@ -176,6 +176,7 @@ export const ru = {
   'toast.shareOn': 'Короткая ссылка скопирована.',
   'toast.shareFail': 'Не удалось создать ссылку.',
   'toast.copied': 'Скопировано',
+  'toast.sampleFail': 'Не удалось открыть пример квартиры',
   'lang.ru': 'RU',
   'lang.en': 'EN',
   'unit.m': 'м',

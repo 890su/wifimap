@@ -16,6 +16,15 @@ function seg(id: string, x1: number, y1: number, x2: number, y2: number, materia
 }
 
 function drawPlan(width: number, height: number, margin: number): string {
+  try {
+    return drawPlanCanvas(width, height, margin)
+  } catch {
+    return ''
+  }
+}
+
+function drawPlanCanvas(width: number, height: number, margin: number): string {
+  if (typeof document === 'undefined') return ''
   const canvas = document.createElement('canvas')
   canvas.width = width
   canvas.height = height
@@ -132,7 +141,7 @@ export function buildSampleProject(name: string): Project {
   ]
   return {
     version: 1,
-    id: crypto.randomUUID(),
+    id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `sample-${Date.now()}`,
     name,
     updatedAt: Date.now(),
     world: { width, height },

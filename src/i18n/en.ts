@@ -178,6 +178,7 @@ export const en: Record<MessageKey, string> = {
   'toast.shareOn': 'Short link copied.',
   'toast.shareFail': 'Could not create a short link.',
   'toast.copied': 'Copied',
+  'toast.sampleFail': 'Could not open the sample flat',
   'lang.ru': 'RU',
   'lang.en': 'EN',
   'unit.m': 'm',

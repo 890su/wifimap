@@ -4,7 +4,7 @@ import type Konva from 'konva'
 import { useHeatmap } from '../hooks/useHeatmap'
 import { uid } from '../lib/ids'
 import { fmtNum } from '../lib/format'
-import { buildSampleProject } from '../lib/sampleProject'
+import { openSampleApartment } from '../lib/openSample'
 import { getMaterial } from '../model/materials'
 import {
   dist,
@@ -300,7 +300,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
 
   const fromChrome = (event: ReactPointerEvent<HTMLDivElement>) => {
     const target = event.target
-    return target instanceof Element && Boolean(target.closest('[data-overlay], [role="dialog"]'))
+    return target instanceof Element && Boolean(target.closest('[data-overlay], [data-no-draw], [role="dialog"], button, a, input, select, textarea, label'))
   }
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -664,13 +664,15 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
       </Stage>
 
       {empty && (
-        <div className="empty-card">
+        <div className="empty-card" data-no-draw onPointerDown={(event) => event.stopPropagation()}>
           <p className="empty-kicker">{t('app.tagline')}</p>
           <h2>{t('empty.title')}</h2>
           <p>{t('empty.body')}</p>
           <Button
             variant="primary"
-            onClick={() => useEditor.getState().replaceProject(buildSampleProject(t('project.sample')))}
+            data-testid="open-sample"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => openSampleApartment(t('project.sample'))}
           >
             {t('empty.sample')}
           </Button>
