@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildSegments, wallLossBetween } from '../model/pathloss'
 import { getMaterial } from '../model/materials'
 import { readProject } from './project'
 
@@ -79,5 +80,16 @@ describe('legacy project migration', () => {
     expect(project?.aps[0].band24.gainDbi).toBe(4)
     expect(project?.aps[0].band5.gainDbi).toBe(5)
     expect(project?.walls[0].materialId).toBe('metal')
+  })
+
+  it('keeps a short metal wall and still attenuates it', () => {
+    const { project } = readProject({
+      ...legacy,
+      walls: [{ id: 'short', points: [0, 0, 5, 0], materialId: 'metal' }],
+    })
+    expect(project?.walls).toHaveLength(1)
+    expect(project?.walls[0].points).toEqual([0, 0, 5, 0])
+    const segs = buildSegments(project!.walls, '5')
+    expect(wallLossBetween(2.5, -20, 2.5, 20, segs, 0.02)).toBe(32)
   })
 })

@@ -74,6 +74,8 @@ export const en: Record<MessageKey, string> = {
   'isp.note': 'The estimate splits the plan equally across every client on the drawing.',
   'isp.ping': 'ISP ping, ms',
   'heat.title': 'Signal map',
+  'heat.for': 'Map for',
+  'heat.nolink': 'No link',
   'heat.opacity': 'Opacity',
   'heat.coverage': 'Area at or above −67 dBm',
   'heat.weak': 'weak',

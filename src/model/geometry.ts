@@ -20,16 +20,18 @@ export function crossingT(
   const d2x = dx - cx
   const d2y = dy - cy
   const den = d1x * d2y - d1y * d2x
-  if (den === 0) return null
+  if (Math.abs(den) < 1e-12) return null
   const acx = cx - ax
   const acy = cy - ay
   const t = (acx * d2y - acy * d2x) / den
   const u = (acx * d1y - acy * d1x) / den
-  if (t > 0.02 && t < 0.998 && u > 0.001 && u < 0.999) return t
-  return null
+  // The wall segment is inclusive, endpoints included. The ray's own ends are not.
+  if (t <= 1e-9 || t >= 1 - 1e-9) return null
+  if (u < -1e-8 || u > 1 + 1e-8) return null
+  return t
 }
 
-/** Proper segment crossing. Endpoints do not count, so shared corners are not double-hit. */
+/** Proper segment crossing, including a hit on a wall endpoint. */
 export function segmentsCross(
   ax: number,
   ay: number,
@@ -50,6 +52,10 @@ export interface Segment {
   y2: number
   loss: number
   materialId: string
+  wallId: string
+  /** True when this end meets another segment, so it is a joint rather than a free tip. */
+  joint1: boolean
+  joint2: boolean
 }
 
 export function wallSegments(wall: Wall, loss: number): Segment[] {
@@ -66,6 +72,9 @@ export function wallSegments(wall: Wall, loss: number): Segment[] {
       y2: wall.points[j * 2 + 1],
       loss,
       materialId: wall.materialId,
+      wallId: wall.id,
+      joint1: false,
+      joint2: false,
     })
   }
   return segs

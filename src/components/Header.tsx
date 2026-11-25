@@ -1,5 +1,6 @@
 import { Redo2, Undo2 } from 'lucide-react'
 import { useMedia } from '../hooks/useMedia'
+import type { MessageKey } from '../i18n'
 import { openPlannerWindow } from '../lib/handoff'
 import { openSampleApartment } from '../lib/openSample'
 import { useEditor, useT } from '../store/editor'
@@ -36,6 +37,7 @@ export function Header({
   const lang = useEditor((state) => state.lang)
   const setLang = useEditor((state) => state.setLang)
 
+  const notices = useEditor((state) => state.notices)
   return (
     <header className="header">
       <div className="brand">
@@ -102,6 +104,14 @@ export function Header({
           onShare={onShare}
         />
       </div>
+      {notices.length > 0 && (
+        <div className="migrate" role="status" data-testid="migration-banner">
+          {notices.map((code) => (
+            <p key={code}>{t(`migrate.${code}` as MessageKey)}</p>
+          ))}
+          <button type="button" onClick={() => useEditor.getState().dismissNotices()}>{t('migrate.dismiss')}</button>
+        </div>
+      )}
     </header>
   )
 }

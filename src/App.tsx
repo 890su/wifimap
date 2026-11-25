@@ -33,7 +33,6 @@ export function App({ embed }: { embed: boolean }) {
   const cameraRef = useRef<HTMLInputElement>(null)
   const jsonRef = useRef<HTMLInputElement>(null)
   const toast = useEditor((state) => state.toast)
-  const notices = useEditor((state) => state.notices)
   const setToast = useEditor((state) => state.setToast)
   const hydrated = useEditor((state) => state.hydrated)
   const lang = useEditor((state) => state.lang)
@@ -230,14 +229,6 @@ export function App({ embed }: { embed: boolean }) {
 
   return (
     <div className={embed ? 'app is-embed' : 'app'}>
-      {notices.length > 0 && (
-        <div className="migrate" role="status" data-testid="migration-banner">
-          {notices.map((code) => (
-            <p key={code}>{translate(lang, `migrate.${code}` as MessageKey)}</p>
-          ))}
-          <button type="button" onClick={() => useEditor.getState().dismissNotices()}>{translate(lang, 'migrate.dismiss')}</button>
-        </div>
-      )}
       <Header
         embed={embed}
         onUpload={() => planRef.current?.click()}

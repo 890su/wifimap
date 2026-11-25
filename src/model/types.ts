@@ -101,8 +101,12 @@ export interface ClientEstimate {
   band: BandId | null
   distanceM: number | null
   wallLossDb: number | null
+  /** Real downlink level at the client. */
   rssiDbm: number | null
   snrDb: number | null
+  /** Real uplink level at the access point. */
+  upRssiDbm: number | null
+  upSnrDb: number | null
   phyMbps: number
   downMbps: number
   upMbps: number
@@ -126,6 +130,9 @@ export interface HeatmapRequest {
   cellM: number
   /** Neighbour-noise offset. The map uses the same value as the client card. */
   noiseExtraDb?: number
+  /** Reference handset for the map. Defaults to a phone. */
+  clientTxDbm?: number
+  clientGainDbi?: number
 }
 
 export interface HeatmapGrid {

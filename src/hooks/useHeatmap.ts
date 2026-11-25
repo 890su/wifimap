@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { renderRssi } from '../lib/heatmapRender'
+import { CLIENT_PRESETS } from '../model/presets'
 import { computeRssiGrid, coverageFraction, coverageZones, effectiveScale } from '../model/pathloss'
 import type { HeatmapGrid, HeatmapRequest, Project } from '../model/types'
 import { useEditor } from '../store/editor'
@@ -48,6 +49,7 @@ function getWorker(): Worker {
 export function useHeatmap(project: Project, band: '2.4' | '5') {
   const setHeatmap = useEditor((state) => state.setHeatmap)
   const opacity = useEditor((state) => state.heatmapOpacity)
+  const heatmapClient = useEditor((state) => state.heatmapClient)
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
   const [placement, setPlacement] = useState<HeatPlacement>({ x: 0, y: 0, w: 1, h: 1 })
   const [epoch, setEpoch] = useState(0)
@@ -62,11 +64,12 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
         walls: project.walls,
         aps: project.aps.map((ap) => ({ x: ap.x, y: ap.y, band24: ap.band24, band5: ap.band5 })),
         band,
+        heatmapClient,
         propagation: project.propagation,
         scale: project.scale,
         world: project.world,
       }),
-    [project.walls, project.aps, project.propagation, project.scale, project.world, band],
+    [project.walls, project.aps, project.propagation, project.scale, project.world, band, heatmapClient],
   )
 
   useEffect(() => {
@@ -102,6 +105,8 @@ export function useHeatmap(project: Project, band: '2.4' | '5') {
         heightPx: bounds.heightPx,
         cellM: 0.25,
         noiseExtraDb: currentProject.propagation.noiseExtraDb ?? 3,
+        clientTxDbm: CLIENT_PRESETS[heatmapClient].txPowerDbm ?? 15,
+        clientGainDbi: CLIENT_PRESETS[heatmapClient].gainDbi ?? -2,
       }
       const apply = (grid: HeatmapGrid) => {
         if (seq.current !== id) return

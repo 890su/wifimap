@@ -67,6 +67,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
   const selection = useEditor((state) => state.selection)
   const materialId = useEditor((state) => state.materialId)
   const band = useEditor((state) => state.band)
+  const heatmapClient = useEditor((state) => state.heatmapClient)
   const apPreset = useEditor((state) => state.apPreset)
   const clientPreset = useEditor((state) => state.clientPreset)
   const t = useT()
@@ -658,13 +659,21 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
             scaleY={1 / view.scale}
             listening={false}
           >
-            <Rect width={360} height={48} fill="rgba(255,250,242,0.94)" cornerRadius={8} />
-            <Rect x={10} y={8} width={26} height={16} fill="#731220" cornerRadius={2} />
-            {['#c4302a', '#e07a32', '#e0b030', '#9bb83a', '#2fbe9a'].map((color, index) => (
-              <Rect key={color} x={44 + index * 34} y={8} width={30} height={16} fill={color} cornerRadius={2} />
+            <Rect width={560} height={72} fill="rgba(255,250,242,0.94)" cornerRadius={8} />
+            <Text x={10} y={6} text={`${t('heat.for')}: ${t(`preset.client.${heatmapClient}` as 'preset.client.phone')}`} fontSize={15} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            {[
+              ['#731220', t('heat.nolink')],
+              ['#c4302a', '−82'],
+              ['#e07a32', '−75'],
+              ['#e0b030', '−67'],
+              ['#9bb83a', '−55'],
+            ].map(([color, label], index) => (
+              <Group key={label} x={10 + index * 108} y={30} listening={false}>
+                <Rect width={22} height={14} fill={color} cornerRadius={2} />
+                <Text x={26} y={0} text={label} fontSize={14} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+              </Group>
             ))}
-            <Text x={10} y={28} text={t('zone.dead')} fontSize={16} fontFamily="Manrope, sans-serif" fill="#2c261f" />
-            <Text x={268} y={6} text={band === '5' ? t('band.5') : t('band.24')} fontSize={15} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            <Text x={470} y={6} text={band === '5' ? t('band.5') : t('band.24')} fontSize={14} fontFamily="Manrope, sans-serif" fill="#2c261f" />
           </Group>
         </Layer>
       </Stage>

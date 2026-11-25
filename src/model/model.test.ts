@@ -124,6 +124,33 @@ describe('walls', () => {
     expect(segs).toHaveLength(4)
     expect(wallLossBetween(50, -20, 50, 40, segs)).toBe(3)
   })
+
+  it('counts a crossing 5–15 cm from a long wall end', () => {
+    const mpp = 0.02
+    const segs = buildSegments([wall('long', [0, 0, 500, 0], 'brick')], '5')
+    expect(wallLossBetween(200, -100, 200, 100, segs, mpp)).toBe(15)
+    expect(wallLossBetween(475, -100, 475, 100, segs, mpp)).toBe(15)
+    expect(wallLossBetween(493, -100, 493, 100, segs, mpp)).toBe(15)
+    expect(wallLossBetween(497, -100, 497, 100, segs, mpp)).toBe(15)
+  })
+
+  it('counts two distinct walls that meet on the ray, and a polyline bend only once', () => {
+    const mpp = 0.02
+    const corner = buildSegments([
+      wall('h', [0, 0, 200, 0], 'brick'),
+      wall('v', [200, 0, 200, 200], 'concrete'),
+    ], '5')
+    expect(wallLossBetween(100, -100, 300, 100, corner, mpp)).toBe(15 + 20)
+    const bend = buildSegments([wall('pencil', [0, 0, 200, 0, 200, 200], 'brick')], '5')
+    expect(wallLossBetween(100, -100, 300, 100, bend, mpp)).toBe(15)
+  })
+
+  it('does not paint a streak past a free wall tip', () => {
+    const mpp = 0.02
+    const segs = buildSegments([wall('tip', [0, 0, 400, 0], 'brick')], '5')
+    expect(wallLossBetween(400, -200, 400, 200, segs, mpp)).toBe(0)
+    expect(wallLossBetween(200, -200, 200, 200, segs, mpp)).toBe(15)
+  })
 })
 
 describe('heatmap', () => {
@@ -227,6 +254,8 @@ describe('throughput and scores', () => {
     expect(phyMbpsFromSnr(40, 'wifi4', 40, 1)).toBeCloseTo(150, 1)
     expect(phyMbpsFromSnr(40, 'wifi4', 80, 1)).toBeLessThanOrEqual(150)
     expect(phyMbpsFromSnr(40, 'wifi5', 80, 2)).toBeLessThanOrEqual(867)
+    expect(phyMbpsFromSnr(7, 'wifi6', 80, 2)).toBeLessThanOrEqual(phyMbpsFromSnr(12, 'wifi6', 80, 2))
+    expect(phyMbpsFromSnr(12, 'wifi6', 80, 2)).toBeLessThanOrEqual(phyMbpsFromSnr(20, 'wifi6', 80, 2))
   })
 
   it('gives a nearby client usable throughput on a wired AP', () => {
@@ -546,7 +575,8 @@ describe('specification reference values', () => {
     const tip = wall('tip', [0, 0, 400, 0], 'brick')
     const segs = buildSegments([tip], '5')
     expect(wallLossBetween(200, -200, 200, 200, segs, mpp)).toBe(15)
-    expect(wallLossBetween(396, -200, 396, 200, segs, mpp)).toBe(0)
+    expect(wallLossBetween(396, -200, 396, 200, segs, mpp)).toBe(15)
+    expect(wallLossBetween(400, -200, 400, 200, segs, mpp)).toBe(0)
     const grid = computeRssiGrid({
       walls: [tip],
       aps: [ap({ id: 'a', x: 200, y: -80, band24: { enabled: false, txPowerDbm: 20, gainDbi: 0, channelWidthMHz: 20 } })],

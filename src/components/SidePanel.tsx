@@ -5,7 +5,7 @@ import { qualityKey, starCount, type MessageKey } from '../i18n'
 import { MATERIALS, SIMPLE_MATERIAL_IDS } from '../model/materials'
 import { AP_PRESET_IDS, AP_PRESETS, CLIENT_PRESET_IDS, CLIENT_PRESETS } from '../model/presets'
 import { ACTIVITY_IDS, effectiveScale, estimateClients } from '../model'
-import type { AccessPoint, Backhaul, WifiGen } from '../model/types'
+import type { AccessPoint, Backhaul, ClientPreset, WifiGen } from '../model/types'
 import { useEditor, useT } from '../store/editor'
 import { BandToggle, ModeToggle } from './Toggles'
 import { Button } from './ui/button'
@@ -33,6 +33,8 @@ export function SidePanel() {
   const renderer = useEditor((state) => state.renderer)
   const opacity = useEditor((state) => state.heatmapOpacity)
   const setOpacity = useEditor((state) => state.setOpacity)
+  const heatmapClient = useEditor((state) => state.heatmapClient)
+  const setHeatmapClient = useEditor((state) => state.setHeatmapClient)
   const updateWall = useEditor((state) => state.updateWall)
   const updateClient = useEditor((state) => state.updateClient)
   const setIsp = useEditor((state) => state.setIsp)
@@ -116,8 +118,21 @@ export function SidePanel() {
 
         <section>
           <h2>{t('heat.title')}</h2>
+          <p className="field-note" data-testid="heatmap-client">{t('heat.for')}: {t(`preset.client.${heatmapClient}` as MessageKey)}</p>
+          <label>
+            {t('heat.for')}
+            <select className="field" value={heatmapClient} onChange={(event) => setHeatmapClient(event.target.value as ClientPreset)}>
+              {CLIENT_PRESET_IDS.map((id) => (
+                <option key={id} value={id}>{t(`preset.client.${id}` as MessageKey)}</option>
+              ))}
+            </select>
+          </label>
           <div className="legend" data-testid="heatmap-legend">
             <span className="legend-dead" data-testid="legend-nolink">{t('zone.dead')}</span>
+            <span>−82</span>
+            <span>−75</span>
+            <span>−67</span>
+            <span>−55</span>
             <i />
             <span>{t('heat.strong')}</span>
           </div>
@@ -205,7 +220,16 @@ export function SidePanel() {
                 <p className="field-note">
                   {t('results.via')} {estimate.apName}
                   {estimate.band ? ` · ${estimate.band === '5' ? t('band.5') : t('band.24')}` : ''}
-                  {estimate.rssiDbm !== null ? ` · ${fmtNum(estimate.rssiDbm, 0)} ${t('unit.dbm')}` : ''}
+                </p>
+              )}
+              {estimate.rssiDbm !== null && (
+                <p className="field-note" data-testid="link-down">
+                  {t('results.down')}: {fmtNum(estimate.rssiDbm, 0)} {t('unit.dbm')} · SNR {fmtNum(estimate.snrDb, 0)} {t('unit.db')}
+                </p>
+              )}
+              {estimate.upRssiDbm !== null && (
+                <p className="field-note" data-testid="link-up">
+                  {t('results.up')}: {fmtNum(estimate.upRssiDbm, 0)} {t('unit.dbm')} · SNR {fmtNum(estimate.upSnrDb, 0)} {t('unit.db')}
                 </p>
               )}
               {mode === 'advanced' && estimate.distanceM !== null && (

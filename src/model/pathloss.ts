@@ -99,17 +99,109 @@ export function radioFor(ap: AccessPoint, band: BandId) {
   return band === '2.4' ? ap.band24 : ap.band5
 }
 
+function vertexKey(x: number, y: number): string {
+  return `${Math.round(x * 10) / 10},${Math.round(y * 10) / 10}`
+}
+
+function markJoints(segs: Segment[]): void {
+  const count = new Map<string, number>()
+  const bump = (x: number, y: number) => {
+    const key = vertexKey(x, y)
+    count.set(key, (count.get(key) ?? 0) + 1)
+  }
+  for (const seg of segs) {
+    bump(seg.x1, seg.y1)
+    bump(seg.x2, seg.y2)
+  }
+  for (const seg of segs) {
+    seg.joint1 = (count.get(vertexKey(seg.x1, seg.y1)) ?? 0) > 1
+    seg.joint2 = (count.get(vertexKey(seg.x2, seg.y2)) ?? 0) > 1
+  }
+}
+
 export function buildSegments(walls: Wall[], band: BandId): Segment[] {
   const segs: Segment[] = []
   for (const wall of walls) {
     segs.push(...wallSegments(wall, materialLoss(wall.materialId, band, wall.thicknessCm)))
   }
+  markJoints(segs)
   return segs
 }
 
+interface SegIndex {
+  size: number
+  cols: number
+  x0: number
+  y0: number
+  bins: Segment[][]
+}
+
+const segmentIndex = new WeakMap<Segment[], SegIndex>()
+
+function indexSegments(segs: Segment[]): SegIndex | null {
+  if (segs.length < 48) return null
+  const cached = segmentIndex.get(segs)
+  if (cached) return cached
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const seg of segs) {
+    minX = Math.min(minX, seg.x1, seg.x2)
+    minY = Math.min(minY, seg.y1, seg.y2)
+    maxX = Math.max(maxX, seg.x1, seg.x2)
+    maxY = Math.max(maxY, seg.y1, seg.y2)
+  }
+  const size = 128
+  const cols = Math.max(1, Math.ceil((maxX - minX + 1) / size))
+  const rows = Math.max(1, Math.ceil((maxY - minY + 1) / size))
+  const bins: Segment[][] = Array.from({ length: cols * rows }, () => [])
+  for (const seg of segs) {
+    const c0 = Math.max(0, Math.floor((Math.min(seg.x1, seg.x2) - minX) / size))
+    const c1 = Math.min(cols - 1, Math.floor((Math.max(seg.x1, seg.x2) - minX) / size))
+    const r0 = Math.max(0, Math.floor((Math.min(seg.y1, seg.y2) - minY) / size))
+    const r1 = Math.min(rows - 1, Math.floor((Math.max(seg.y1, seg.y2) - minY) / size))
+    for (let row = r0; row <= r1; row++) {
+      for (let col = c0; col <= c1; col++) bins[row * cols + col].push(seg)
+    }
+  }
+  const index = { size, cols, x0: minX, y0: minY, bins }
+  segmentIndex.set(segs, index)
+  return index
+}
+
+function segmentsOnRay(segs: Segment[], ax: number, ay: number, bx: number, by: number): Segment[] {
+  const index = indexSegments(segs)
+  if (!index) return segs
+  const seen = new Set<Segment>()
+  const out: Segment[] = []
+  const rows = index.bins.length / index.cols
+  const visit = (x: number, y: number) => {
+    const col = Math.floor((x - index.x0) / index.size)
+    const row = Math.floor((y - index.y0) / index.size)
+    if (col < 0 || row < 0 || col >= index.cols || row >= rows) return
+    for (const seg of index.bins[row * index.cols + col]) {
+      if (seen.has(seg)) continue
+      seen.add(seg)
+      out.push(seg)
+    }
+  }
+  const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / (index.size * 0.5)))
+  for (let i = 0; i <= steps; i++) visit(ax + ((bx - ax) * i) / steps, ay + ((by - ay) * i) / steps)
+  return out
+}
+
+function nearlyParallel(ax: number, ay: number, bx: number, by: number): boolean {
+  const al = Math.hypot(ax, ay) || 1
+  const bl = Math.hypot(bx, by) || 1
+  return Math.abs(ax * bx + ay * by) / (al * bl) > 0.985
+}
+
 /**
- * Sum of wall crossings. Segments that the ray meets within 12 cm of each
- * other (a shared edge of two rooms) count once, at the larger loss.
+ * Sum of wall crossings. A graze of a free tip (within 1 cm) does not count,
+ * so the heatmap does not draw a streak past a wall end. A joint does count.
+ * Segments of one polyline count once. Parallel walls that share an edge count
+ * once; distinct walls that meet at a corner both count.
  */
 export function wallLossBetween(
   ax: number,
@@ -122,32 +214,39 @@ export function wallLossBetween(
   const lengthM = Math.max(Math.hypot(bx - ax, by - ay) * metersPerPixel, 0.01)
   const dx = bx - ax
   const dy = by - ay
-  const hits: { alongM: number; loss: number }[] = []
-  for (const s of segs) {
+  const hits: { alongM: number; loss: number; wallId: string; sx: number; sy: number }[] = []
+  for (const s of segmentsOnRay(segs, ax, ay, bx, by)) {
     const t = crossingT(ax, ay, bx, by, s.x1, s.y1, s.x2, s.y2)
     if (t === null) continue
     const hitX = ax + t * dx
     const hitY = ay + t * dy
-    const fromEndM = Math.min(Math.hypot(hitX - s.x1, hitY - s.y1), Math.hypot(hitX - s.x2, hitY - s.y2)) * metersPerPixel
-    // A ray that only clips a wall tip or a junction is not a crossing. The same
-    // rule is used for the heatmap grid and for a client point.
-    if (fromEndM < 0.2) continue
-    hits.push({ alongM: t * lengthM, loss: s.loss })
+    const fromStartM = Math.hypot(hitX - s.x1, hitY - s.y1) * metersPerPixel
+    const fromEndM = Math.hypot(hitX - s.x2, hitY - s.y2) * metersPerPixel
+    if (fromStartM < 0.01 && !s.joint1) continue
+    if (fromEndM < 0.01 && !s.joint2) continue
+    hits.push({ alongM: t * lengthM, loss: s.loss, wallId: s.wallId, sx: s.x2 - s.x1, sy: s.y2 - s.y1 })
   }
-  hits.sort((a, b) => a.alongM - b.alongM)
-  let loss = 0
-  let groupMax = 0
-  let groupAt = -1
+  const byWall = new Map<string, (typeof hits)[number]>()
   for (const hit of hits) {
-    if (groupAt >= 0 && hit.alongM - groupAt <= 0.12) {
-      groupMax = Math.max(groupMax, hit.loss)
-      continue
+    const previous = byWall.get(hit.wallId)
+    if (!previous || hit.loss > previous.loss) byWall.set(hit.wallId, hit)
+  }
+  const unique = [...byWall.values()].sort((a, b) => a.alongM - b.alongM)
+  let loss = 0
+  for (let i = 0; i < unique.length; ) {
+    let groupMax = unique[i].loss
+    let j = i + 1
+    while (
+      j < unique.length &&
+      unique[j].alongM - unique[i].alongM <= 0.12 &&
+      nearlyParallel(unique[i].sx, unique[i].sy, unique[j].sx, unique[j].sy)
+    ) {
+      groupMax = Math.max(groupMax, unique[j].loss)
+      j++
     }
     loss += groupMax
-    groupMax = hit.loss
-    groupAt = hit.alongM
+    i = j
   }
-  loss += groupMax
   return Math.min(loss, WALL_LOSS_CAP_DB)
 }
 
@@ -243,7 +342,7 @@ export function bidirectionalLink(args: {
   let chosen: LinkBudget | null = null
   let chosenWidth = UPLINK_FALLBACK_MHZ
   for (const width of widths) {
-    const noise = width <= UPLINK_FALLBACK_MHZ ? UPLINK_FALLBACK_NOISE_DBM : noiseFloorDbm(width, args.noiseExtraDb)
+    const noise = noiseFloorDbm(width, args.noiseExtraDb)
     const up = linkBudget({
       ...geometry,
       txPowerDbm: args.clientTxDbm,
@@ -262,7 +361,7 @@ export function bidirectionalLink(args: {
     txPowerDbm: args.clientTxDbm,
     gainDbi: args.clientGainDbi,
     rxGainDbi: rxAtAp,
-    noiseDbm: UPLINK_FALLBACK_NOISE_DBM,
+    noiseDbm: noiseFloorDbm(UPLINK_FALLBACK_MHZ, args.noiseExtraDb),
   })
   const downFails = directionFails(down.rssiDbm, down.snrDb)
   const upFails = directionFails(up.rssiDbm, up.snrDb)
@@ -329,8 +428,8 @@ export function computeRssiGrid(req: HeatmapRequest): HeatmapGrid {
           apGainDbi: ap.gain,
           apMimo: ap.mimo,
           channelWidthMHz: ap.width,
-          clientTxDbm: HEATMAP_CLIENT_TX_DBM,
-          clientGainDbi: HEATMAP_CLIENT_GAIN_DBI,
+          clientTxDbm: req.clientTxDbm ?? HEATMAP_CLIENT_TX_DBM,
+          clientGainDbi: req.clientGainDbi ?? HEATMAP_CLIENT_GAIN_DBI,
           segs,
           metersPerPixel: mpp,
           freqMHz: freq,

@@ -12,6 +12,9 @@ export type Selection =
 export type HeatStatus = 'idle' | 'computing' | 'ready' | 'error'
 
 interface Snapshot {
+  id: string
+  name: string
+  schemaVersion?: number
   walls: Wall[]
   aps: AccessPoint[]
   clients: ClientDevice[]
@@ -24,6 +27,9 @@ interface Snapshot {
 
 function cloneSnapshot(project: Project): Snapshot {
   return {
+    id: project.id,
+    name: project.name,
+    schemaVersion: project.schemaVersion,
     walls: project.walls.map((wall) => ({ ...wall, points: wall.points.slice() })),
     aps: project.aps.map((ap) => ({ ...ap, band24: { ...ap.band24 }, band5: { ...ap.band5 } })),
     clients: project.clients.map((client) => ({ ...client })),
@@ -62,6 +68,7 @@ interface EditorState {
   lang: 'ru' | 'en'
   heatmapOpacity: number
   snapEnabled: boolean
+  heatmapClient: ClientPreset
   touched: boolean
   /** Bumps on every user-driven project replacement so a late IndexedDB read cannot overwrite it. */
   epoch: number
@@ -81,6 +88,7 @@ interface EditorState {
   setClientPreset: (preset: ClientPreset) => void
   setOpacity: (value: number) => void
   setSnapEnabled: (value: boolean) => void
+  setHeatmapClient: (preset: ClientPreset) => void
   setToast: (toast: string | null) => void
   setHeatmap: (patch: { status: HeatStatus; coverage67: number | null; renderer: 'webgl2' | 'canvas2d' | null }) => void
   setZones: (zones: EditorState['zones']) => void
@@ -126,6 +134,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   lang: readEnum('wifiplan:lang', ['ru', 'en'] as const, 'ru'),
   heatmapOpacity: 0.62,
   snapEnabled: true,
+  heatmapClient: readEnum('wifiplan:heatclient', ['phone', 'laptop', 'tv', 'console', 'pc'] as const, 'phone'),
   touched: false,
   epoch: 0,
   hydrated: false,
@@ -153,6 +162,10 @@ export const useEditor = create<EditorState>((set, get) => ({
   setClientPreset: (clientPreset) => set({ clientPreset }),
   setOpacity: (heatmapOpacity) => set({ heatmapOpacity }),
   setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
+  setHeatmapClient: (heatmapClient) => {
+    localStorage.setItem('wifiplan:heatclient', heatmapClient)
+    set({ heatmapClient })
+  },
   setToast: (toast) => set({ toast }),
   setHeatmap: (next) => set({ heatmapStatus: next.status, coverage67: next.coverage67, renderer: next.renderer }),
   setZones: (zones) => set({ zones }),

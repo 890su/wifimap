@@ -198,6 +198,9 @@ interface AirLink {
   phy: number
   rssi: number
   snr: number
+  upRssi: number
+  upSnr: number
+  worseSnr: number
   distanceM: number
   wallLossDb: number
   uplinkLimits: boolean
@@ -238,8 +241,11 @@ function airLink(
     mbps: phy * MAC_ETA[gen],
     upMbps: upPhy * MAC_ETA[gen],
     phy,
-    rssi: both.effectiveRssiDbm,
-    snr: both.worseSnrDb,
+    rssi: both.down.rssiDbm,
+    snr: both.down.snrDb,
+    upRssi: both.up.rssiDbm,
+    upSnr: both.up.snrDb,
+    worseSnr: both.worseSnrDb,
     distanceM: both.down.distanceM,
     wallLossDb: both.down.wallLossDb,
     uplinkLimits: both.uplinkLimits,
@@ -314,6 +320,8 @@ function disconnected(client: ClientDevice, approximate: boolean, warning: 'no-a
     wallLossDb: null,
     rssiDbm: null,
     snrDb: null,
+    upRssiDbm: null,
+    upSnrDb: null,
     phyMbps: 0,
     downMbps: 0,
     upMbps: 0,
@@ -383,6 +391,8 @@ export function estimateClients(
         estimate.band = choice.band
         estimate.rssiDbm = choice.link.rssi
         estimate.snrDb = choice.link.snr
+        estimate.upRssiDbm = choice.link.upRssi
+        estimate.upSnrDb = choice.link.upSnr
         estimate.distanceM = choice.link.distanceM
         estimate.wallLossDb = choice.link.wallLossDb
         if (choice.link.uplinkLimits) estimate.warnings.push('uplink-limit')
@@ -394,11 +404,11 @@ export function estimateClients(
     const penalty = choice.uplink.penalty
     const down = Math.max(0, Math.min((choice.link.mbps * penalty) / shares, choice.uplink.capMbps, ispDown))
     const up = Math.max(0, Math.min((choice.link.upMbps * penalty) / shares, choice.uplink.capMbps, ispUp))
-    const twifi = choice.link.snr > 25 ? 2 : choice.link.snr > 15 ? 5 : 8
+    const twifi = choice.link.worseSnr > 25 ? 2 : choice.link.worseSnr > 15 ? 5 : 8
     const hop = choice.uplink.wireless ? 4 : 0.2
     const pingMs = ispPing + twifi + hop
-    const jitterMs = 1 + (choice.link.snr < 15 ? 4 : 0) + (choice.uplink.wireless ? 2 : 0)
-    const lossPct = choice.link.snr - 5 < 3 ? 4 : choice.link.snr < 15 ? 0.8 : 0.1
+    const jitterMs = 1 + (choice.link.worseSnr < 15 ? 4 : 0) + (choice.uplink.wireless ? 2 : 0)
+    const lossPct = choice.link.worseSnr - 5 < 3 ? 4 : choice.link.worseSnr < 15 ? 0.8 : 0.1
     const metrics = { downMbps: down, upMbps: up, pingMs, jitterMs, lossPct }
     const scores = emptyScores()
     for (const id of ACTIVITY_IDS) scores[id] = scoreActivity(metrics, id)
@@ -422,6 +432,8 @@ export function estimateClients(
       wallLossDb: choice.link.wallLossDb,
       rssiDbm: choice.link.rssi,
       snrDb: choice.link.snr,
+      upRssiDbm: choice.link.upRssi,
+      upSnrDb: choice.link.upSnr,
       phyMbps: choice.link.phy,
       downMbps: down,
       upMbps: up,

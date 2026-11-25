@@ -33,7 +33,7 @@ button:disabled { cursor: default; opacity: 0.4; }
   overflow: hidden;
   display: grid;
   grid-template-columns: 88px minmax(0, 1fr) 348px;
-  grid-template-rows: 62px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   background:
     radial-gradient(900px 420px at 10% -10%, rgba(240, 180, 41, 0.08), transparent 55%),
     var(--bg);
@@ -45,9 +45,11 @@ button:disabled { cursor: default; opacity: 0.4; }
   position: relative;
   z-index: 3;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 0 14px;
+  gap: 8px 12px;
+  min-height: 62px;
+  padding: 6px 14px;
   border-bottom: 1px solid var(--line);
   background: rgba(16, 18, 24, 0.92);
   backdrop-filter: blur(10px);
@@ -332,23 +334,17 @@ button:disabled { cursor: default; opacity: 0.4; }
 .modal-card .btn-ghost { color: #241f18; }
 
 .migrate {
-  position: fixed;
-  z-index: 30;
-  left: 104px;
-  right: 16px;
-  bottom: 16px;
-  top: auto;
-  max-height: 28vh;
-  overflow: auto;
+  position: static;
+  flex: 1 1 100%;
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
   align-items: center;
-  padding: 10px 12px;
+  margin: 0;
+  padding: 8px 10px;
   border-radius: 12px;
   background: #f6f1e7;
   color: #241f18;
-  box-shadow: var(--shadow);
 }
 .migrate p { margin: 0; flex: 1 1 220px; font-size: 13px; line-height: 1.4; }
 .migrate button { min-height: 36px; }
@@ -437,7 +433,6 @@ button:disabled { cursor: default; opacity: 0.4; }
   .peek-caret { color: var(--muted); font-size: 12px; }
   .side-toggles { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
   .empty-card { top: 12px; left: 12px; }
-  .migrate { left: 8px; right: 8px; bottom: 64px; max-height: 22vh; }
   .score { grid-template-columns: 96px 1fr auto; }
   .toast { bottom: 86px; }
 }
