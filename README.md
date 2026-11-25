@@ -55,7 +55,7 @@ npm run build
 npx wrangler pages deploy dist --project-name wifiplan
 ```
 
-`wrangler.toml` задаёт `pages_build_output_dir = "dist"`. Первый деплой создаст проект Pages с именем `wifiplan`, если его ещё нет (нужен вход: `npx wrangler login`).
+`wrangler.toml` задаёт `pages_build_output_dir = "dist"`. Первый деплой создаст проект Pages с именем `wifiplan`, если его ещё нет. Войти можно через `npx wrangler login` либо через переменную окружения `CLOUDFLARE_API_TOKEN`. Сам токен в репозиторий не кладётся.
 
 В `dist` попадают `public/_headers`, `public/_redirects` и `public/embed.js`. Заголовок `Content-Security-Policy: frame-ancestors *` разрешает вставку в iframe; `X-Frame-Options` не задаётся. Звёздочка пока намеренная: встраивание должно работать на любом сайте, пока `FRAME_ANCESTORS` не задан списком origin через пробел. Переменная в `wrangler.toml` применяется в `functions/_middleware.ts`. `/* /index.html 200` отдаёт приложение для неизвестных путей. Файлы и Pages Functions имеют приоритет над этим правилом. `embed.js` меняет высоту iframe по сообщению `{ type: "wifiplan:height", height }`.
 
