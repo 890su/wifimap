@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type Konva from 'konva'
 import { useHeatmap } from '../hooks/useHeatmap'
@@ -510,6 +510,33 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
   })()
   const stroke = 1 / view.scale
   const empty = !project.floorPlan && project.walls.length === 0 && project.aps.length === 0 && project.clients.length === 0
+  const wallNodes = useMemo(
+    () =>
+      project.walls.map((wall) => {
+        const color = getMaterial(wall.materialId).color
+        const selected = selection?.type === 'wall' && selection.id === wall.id
+        return (
+          <Group key={wall.id} listening={false}>
+            {wall.closed && <Line points={wall.points} closed fill={color} opacity={0.14} listening={false} perfectDrawEnabled={false} />}
+            <Line
+              points={wall.points}
+              closed={wall.closed}
+              stroke={selected ? '#f0b429' : color}
+              strokeWidth={(selected ? 5 : 3.2) / view.scale}
+              lineCap="round"
+              lineJoin="round"
+              listening={false}
+              perfectDrawEnabled={false}
+              shadowForStrokeEnabled={false}
+            />
+          </Group>
+        )
+      }),
+    [project.walls, selection, view.scale],
+  )
+  const narrowLegend = size.w < 520
+  const legendW = narrowLegend ? Math.max(168, size.w - 12) : 520
+  const legendH = narrowLegend ? 86 : 64
 
   return (
     <div
@@ -565,24 +592,7 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
               listening={false}
             />
           )}
-          {project.walls.map((wall) => {
-            const color = getMaterial(wall.materialId).color
-            const selected = selection?.type === 'wall' && selection.id === wall.id
-            return (
-              <Group key={wall.id} listening={false}>
-                {wall.closed && <Line points={wall.points} closed fill={color} opacity={0.14} listening={false} />}
-                <Line
-                  points={wall.points}
-                  closed={wall.closed}
-                  stroke={selected ? '#f0b429' : color}
-                  strokeWidth={(selected ? 5 : 3.2) / view.scale}
-                  lineCap="round"
-                  lineJoin="round"
-                  listening={false}
-                />
-              </Group>
-            )
-          })}
+          {wallNodes}
           {draft?.kind === 'room' && (
             <Line points={rectPoints(draft.a, draft.b)} closed stroke="#f0b429" strokeWidth={2.5 / view.scale} dash={[8 / view.scale, 6 / view.scale]} listening={false} />
           )}
@@ -653,27 +663,37 @@ export const StageView = forwardRef<StageHandle>(function StageView(_props, ref)
             )
           })}
           <Group
-            x={(12 - view.x) / view.scale}
-            y={(12 - view.y) / view.scale}
+            x={(8 - view.x) / view.scale}
+            y={((narrowLegend ? size.h - legendH - 58 : 8) - view.y) / view.scale}
             scaleX={1 / view.scale}
             scaleY={1 / view.scale}
             listening={false}
           >
-            <Rect width={560} height={72} fill="rgba(255,250,242,0.94)" cornerRadius={8} />
-            <Text x={10} y={6} text={`${t('heat.for')}: ${t(`preset.client.${heatmapClient}` as 'preset.client.phone')}`} fontSize={15} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            <Rect width={legendW} height={legendH} fill="rgba(255,250,242,0.94)" cornerRadius={8} />
+            <Text
+              x={8}
+              y={6}
+              width={legendW - 16}
+              text={`${t('heat.for')}: ${t(`preset.client.${heatmapClient}` as 'preset.client.phone')}`}
+              fontSize={narrowLegend ? 12 : 15}
+              fontFamily="Manrope, sans-serif"
+              fill="#2c261f"
+            />
             {[
               ['#731220', t('heat.nolink')],
               ['#c4302a', '−82'],
               ['#e07a32', '−75'],
               ['#e0b030', '−67'],
               ['#9bb83a', '−55'],
-            ].map(([color, label], index) => (
-              <Group key={label} x={10 + index * 108} y={30} listening={false}>
-                <Rect width={22} height={14} fill={color} cornerRadius={2} />
-                <Text x={26} y={0} text={label} fontSize={14} fontFamily="Manrope, sans-serif" fill="#2c261f" />
-              </Group>
-            ))}
-            <Text x={470} y={6} text={band === '5' ? t('band.5') : t('band.24')} fontSize={14} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+            ].map(([color, label], index) => {
+              const slot = (legendW - 16) / 5
+              return (
+                <Group key={label} x={8 + index * slot} y={narrowLegend ? 28 : 30} listening={false}>
+                  <Rect width={narrowLegend ? 14 : 18} height={12} fill={color} cornerRadius={2} />
+                  <Text x={0} y={16} width={slot - 4} text={label} fontSize={narrowLegend ? 10 : 13} fontFamily="Manrope, sans-serif" fill="#2c261f" />
+                </Group>
+              )
+            })}
           </Group>
         </Layer>
       </Stage>

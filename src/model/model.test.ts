@@ -140,9 +140,41 @@ describe('walls', () => {
       wall('h', [0, 0, 200, 0], 'brick'),
       wall('v', [200, 0, 200, 200], 'concrete'),
     ], '5')
-    expect(wallLossBetween(100, -100, 300, 100, corner, mpp)).toBe(15 + 20)
+    expect(wallLossBetween(100, -100, 300, 100, corner, mpp)).toBeLessThanOrEqual(20)
+    expect(wallLossBetween(100, 100, 300, -100, corner, mpp)).toBe(20)
     const bend = buildSegments([wall('pencil', [0, 0, 200, 0, 200, 200], 'brick')], '5')
     expect(wallLossBetween(100, -100, 300, 100, bend, mpp)).toBe(15)
+  })
+
+  it('counts both walls of a T-junction when the ray crosses each of them', () => {
+    const mpp = 0.02
+    const segs = buildSegments([
+      wall('bar', [0, 0, 400, 0], 'brick'),
+      wall('stem', [200, 0, 200, 200], 'concrete'),
+    ], '5')
+    expect(wallLossBetween(150, -80, 250, 80, segs, mpp)).toBe(15 + 20)
+  })
+
+  it('does not stack every wall that only touches the sample kitchen corner', () => {
+    const ppm = 76
+    const margin = 0.55 * ppm
+    const mx = (meters: number) => margin + meters * ppm
+    const walls = [
+      wall('bed2', [mx(4.4), mx(3.35), mx(4.4), mx(3.6)], 'brick'),
+      wall('bedb', [mx(2.35), mx(3.6), mx(4.4), mx(3.6)], 'brick'),
+      wall('kit', [mx(4.4), mx(2.8), mx(5.85), mx(2.8)], 'brick'),
+    ]
+    const segs = buildSegments(walls, '5')
+    const ax = mx(3.3)
+    const ay = mx(5.5)
+    const vx = mx(4.4)
+    const vy = mx(3.6)
+    const dx = vx - ax
+    const dy = vy - ay
+    const through = wallLossBetween(ax, ay, vx + dx, vy + dy, segs, 1 / ppm)
+    const beside = wallLossBetween(ax, ay, vx + dx + 6, vy + dy, segs, 1 / ppm)
+    expect(through).toBeLessThanOrEqual(30)
+    expect(through - beside).toBeLessThanOrEqual(15)
   })
 
   it('does not paint a streak past a free wall tip', () => {

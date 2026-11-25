@@ -114,9 +114,25 @@ function markJoints(segs: Segment[]): void {
     bump(seg.x2, seg.y2)
   }
   for (const seg of segs) {
-    seg.joint1 = (count.get(vertexKey(seg.x1, seg.y1)) ?? 0) > 1
-    seg.joint2 = (count.get(vertexKey(seg.x2, seg.y2)) ?? 0) > 1
+    seg.joint1 = (count.get(vertexKey(seg.x1, seg.y1)) ?? 0) > 1 || endpointLiesOnAnother(seg.x1, seg.y1, seg, segs)
+    seg.joint2 = (count.get(vertexKey(seg.x2, seg.y2)) ?? 0) > 1 || endpointLiesOnAnother(seg.x2, seg.y2, seg, segs)
   }
+}
+
+function endpointLiesOnAnother(x: number, y: number, self: Segment, segs: Segment[]): boolean {
+  for (const other of segs) {
+    if (other === self) continue
+    const ex = other.x2 - other.x1
+    const ey = other.y2 - other.y1
+    const len2 = ex * ex + ey * ey
+    if (len2 < 1e-6) continue
+    const t = ((x - other.x1) * ex + (y - other.y1) * ey) / len2
+    if (t <= 0.002 || t >= 0.998) continue
+    const px = other.x1 + t * ex
+    const py = other.y1 + t * ey
+    if (Math.hypot(px - x, py - y) <= 0.6) return true
+  }
+  return false
 }
 
 export function buildSegments(walls: Wall[], band: BandId): Segment[] {
@@ -214,7 +230,17 @@ export function wallLossBetween(
   const lengthM = Math.max(Math.hypot(bx - ax, by - ay) * metersPerPixel, 0.01)
   const dx = bx - ax
   const dy = by - ay
-  const hits: { alongM: number; loss: number; wallId: string; sx: number; sy: number }[] = []
+  type Hit = {
+    alongM: number
+    loss: number
+    wallId: string
+    sx: number
+    sy: number
+    interior: boolean
+    ox: number
+    oy: number
+  }
+  const hits: Hit[] = []
   for (const s of segmentsOnRay(segs, ax, ay, bx, by)) {
     const t = crossingT(ax, ay, bx, by, s.x1, s.y1, s.x2, s.y2)
     if (t === null) continue
@@ -222,32 +248,73 @@ export function wallLossBetween(
     const hitY = ay + t * dy
     const fromStartM = Math.hypot(hitX - s.x1, hitY - s.y1) * metersPerPixel
     const fromEndM = Math.hypot(hitX - s.x2, hitY - s.y2) * metersPerPixel
-    if (fromStartM < 0.01 && !s.joint1) continue
-    if (fromEndM < 0.01 && !s.joint2) continue
-    hits.push({ alongM: t * lengthM, loss: s.loss, wallId: s.wallId, sx: s.x2 - s.x1, sy: s.y2 - s.y1 })
+    const segLenM = Math.hypot(s.x2 - s.x1, s.y2 - s.y1) * metersPerPixel
+    const atStart = fromStartM < 0.01
+    const atEnd = fromEndM < 0.01
+    if (segLenM >= 0.03) {
+      if (atStart && !s.joint1) continue
+      if (atEnd && !s.joint2) continue
+    }
+    const interior = segLenM < 0.03 || (!atStart && !atEnd)
+    hits.push({
+      alongM: t * lengthM,
+      loss: s.loss,
+      wallId: s.wallId,
+      sx: s.x2 - s.x1,
+      sy: s.y2 - s.y1,
+      interior,
+      ox: atEnd && !atStart ? s.x1 : s.x2,
+      oy: atEnd && !atStart ? s.y1 : s.y2,
+    })
   }
-  const byWall = new Map<string, (typeof hits)[number]>()
+  const byWall = new Map<string, Hit>()
   for (const hit of hits) {
     const previous = byWall.get(hit.wallId)
-    if (!previous || hit.loss > previous.loss) byWall.set(hit.wallId, hit)
+    if (!previous || (hit.interior && !previous.interior) || (hit.interior === previous.interior && hit.loss > previous.loss)) {
+      byWall.set(hit.wallId, hit)
+    }
   }
   const unique = [...byWall.values()].sort((a, b) => a.alongM - b.alongM)
   let loss = 0
   for (let i = 0; i < unique.length; ) {
-    let groupMax = unique[i].loss
     let j = i + 1
-    while (
-      j < unique.length &&
-      unique[j].alongM - unique[i].alongM <= 0.12 &&
-      nearlyParallel(unique[i].sx, unique[i].sy, unique[j].sx, unique[j].sy)
-    ) {
-      groupMax = Math.max(groupMax, unique[j].loss)
-      j++
+    while (j < unique.length && unique[j].alongM - unique[i].alongM <= 0.02) j++
+    const cluster = unique.slice(i, j)
+    const interiors = cluster.filter((hit) => hit.interior)
+    const ends = cluster.filter((hit) => !hit.interior)
+    loss += lossOfParallelGroups(interiors)
+    if (interiors.length > 0) {
+      loss += ends.reduce((sum, hit) => sum + hit.loss, 0)
+    } else if (ends.length === 1) {
+      loss += ends[0].loss
+    } else if (ends.length > 1) {
+      const signs = ends.map((hit) => sideOfRay(ax, ay, bx, by, hit.ox, hit.oy)).filter((side) => Math.abs(side) > 1e-4)
+      const splits = signs.some((side) => side > 0) && signs.some((side) => side < 0)
+      if (splits) loss += Math.max(...ends.map((hit) => hit.loss))
     }
-    loss += groupMax
     i = j
   }
   return Math.min(loss, WALL_LOSS_CAP_DB)
+}
+
+function sideOfRay(ax: number, ay: number, bx: number, by: number, px: number, py: number): number {
+  return (bx - ax) * (py - ay) - (by - ay) * (px - ax)
+}
+
+function lossOfParallelGroups(list: { alongM: number; loss: number; sx: number; sy: number }[]): number {
+  const sorted = [...list].sort((a, b) => a.alongM - b.alongM)
+  let total = 0
+  for (let i = 0; i < sorted.length; ) {
+    let maxLoss = sorted[i].loss
+    let j = i + 1
+    while (j < sorted.length && nearlyParallel(sorted[i].sx, sorted[i].sy, sorted[j].sx, sorted[j].sy)) {
+      maxLoss = Math.max(maxLoss, sorted[j].loss)
+      j++
+    }
+    total += maxLoss
+    i = j
+  }
+  return total
 }
 
 export interface LinkBudget {
@@ -271,9 +338,10 @@ export function linkBudget(args: {
   freqMHz: number
   exponent: number
   noiseDbm: number
+  wallLossDb?: number
 }): LinkBudget {
   const distanceM = Math.max(Math.hypot(args.x2 - args.x1, args.y2 - args.y1) * args.metersPerPixel, 0.5)
-  const wallLossDb = wallLossBetween(args.x1, args.y1, args.x2, args.y2, args.segs, args.metersPerPixel)
+  const wallLossDb = args.wallLossDb ?? wallLossBetween(args.x1, args.y1, args.x2, args.y2, args.segs, args.metersPerPixel)
   const pl = pathLossDb(distanceM, args.freqMHz, args.exponent, wallLossDb)
   const rssiDbm = args.txPowerDbm + args.gainDbi + (args.rxGainDbi ?? 0) - pl
   return {
@@ -330,12 +398,14 @@ export function bidirectionalLink(args: {
     exponent: args.exponent,
   }
   const downNoise = noiseFloorDbm(args.channelWidthMHz, args.noiseExtraDb)
+  const wallLossDb = wallLossBetween(args.apX, args.apY, args.clientX, args.clientY, args.segs, args.metersPerPixel)
   const down = linkBudget({
     ...geometry,
     txPowerDbm: args.apTxDbm,
     gainDbi: args.apGainDbi,
     rxGainDbi: args.clientGainDbi,
     noiseDbm: downNoise,
+    wallLossDb,
   })
   const rxAtAp = args.apGainDbi + apReceiveGainDb(args.apMimo)
   const widths = [20, 40, 80, 160, 320].filter((width) => width <= args.channelWidthMHz + 1e-6)
@@ -349,6 +419,7 @@ export function bidirectionalLink(args: {
       gainDbi: args.clientGainDbi,
       rxGainDbi: rxAtAp,
       noiseDbm: noise,
+      wallLossDb,
     })
     if (directionFails(up.rssiDbm, up.snrDb)) continue
     if (!chosen || width > chosenWidth) {
@@ -362,6 +433,7 @@ export function bidirectionalLink(args: {
     gainDbi: args.clientGainDbi,
     rxGainDbi: rxAtAp,
     noiseDbm: noiseFloorDbm(UPLINK_FALLBACK_MHZ, args.noiseExtraDb),
+    wallLossDb,
   })
   const downFails = directionFails(down.rssiDbm, down.snrDb)
   const upFails = directionFails(up.rssiDbm, up.snrDb)

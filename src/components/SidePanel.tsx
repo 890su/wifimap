@@ -118,10 +118,9 @@ export function SidePanel() {
 
         <section>
           <h2>{t('heat.title')}</h2>
-          <p className="field-note" data-testid="heatmap-client">{t('heat.for')}: {t(`preset.client.${heatmapClient}` as MessageKey)}</p>
           <label>
             {t('heat.for')}
-            <select className="field" value={heatmapClient} onChange={(event) => setHeatmapClient(event.target.value as ClientPreset)}>
+            <select className="field" data-testid="heatmap-client" value={heatmapClient} onChange={(event) => setHeatmapClient(event.target.value as ClientPreset)}>
               {CLIENT_PRESET_IDS.map((id) => (
                 <option key={id} value={id}>{t(`preset.client.${id}` as MessageKey)}</option>
               ))}
